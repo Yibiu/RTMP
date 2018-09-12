@@ -2,7 +2,11 @@
 
 [TOC]
 
+
+
 ## 一：Message
+
+Message为应用层的抽象，实际发送是将message 拆分为chunk发送。
 
 ```c++
  0               1               2               3
@@ -378,7 +382,7 @@ C0中version表示客户端请求的版本，S0的version表示server选择的�
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                        time (4 bytes)                         |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                        zero (4 bytes)                         |
+|                        zero (4 bytes)/FMS Version             |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                        random bytes                           |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -408,6 +412,83 @@ C0中version表示客户端请求的版本，S0的version表示server选择的�
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
+
+
+
+
+## Stream和Chunk的理解
+
+Message Stream为创建的一条数据通道，可能有以下三种：
+
+```c++
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       视频/音频                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       只含视频                                 |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       只含音频                                 |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+Message Stream由 `Message Stream ID` 唯一标识。创建Message Stream通道之后就可以在通道中发送Message，Message的类型由`Message Stream Type` 标识。RTMP模块在底层将对Message分割，分割的Chunk是真正发送的格式。
+
+- `Chunk Type`优化 - 同一个Message分割内部或者连续发送的Message之间；
+
+- `Chunk ID` - 同一个Message分割成的Chunks的 `Chunk ID` 相同；不同Message可以选择使用相同的`Chunk ID`。官方文档对ChunkID的使用描述很模糊，很大程度上会产生误导。其实，只要保证同一Message分割的Chunks的Chunk ID相同就可以了，这样服务器就可正确组包；此外，还要保证特定的Message使用特定的`Chunk ID`。
+
+  常用的Chunk ID有：
+
+  - 2： Protocol Control Messages (1,2,3,5,6) & User Control Messages Event (4)，Ping 和ByteRead通道 
+
+  - 3： Invoke通道,这个通道适用的消息很多，比较灵活, connect, create_stream, release_stream, delete_stream, fcpublish, fcunpublish, publish, play, pause, seek, send_get_stream_length, 以及script脚本数据
+  - 4：Audio和Vidio通道
+  - 5 、6 、7：服务器保留,经观察FMS2用这些Channel也用来发送音频或视频数据。
+
+  ```c++
+  // https://github.com/ossrs/srs/blob/master/trunk/src/kernel/srs_kernel_flv.hpp
+  /**
+   * the chunk stream id used for some under-layer message,
+   * for example, the PC(protocol control) message.
+   */
+  #define RTMP_CID_ProtocolControl                0x02
+  /**
+   * the AMF0/AMF3 command message, invoke method and return the result, over NetConnection.
+   * generally use 0x03.
+   */
+  #define RTMP_CID_OverConnection                 0x03
+  /**
+   * the AMF0/AMF3 command message, invoke method and return the result, over NetConnection,
+   * the midst state(we guess).
+   * rarely used, e.g. onStatus(NetStream.Play.Reset).
+   */
+  #define RTMP_CID_OverConnection2                0x04
+  /**
+   * the stream message(amf0/amf3), over NetStream.
+   * generally use 0x05.
+   */
+  #define RTMP_CID_OverStream                     0x05
+  /**
+   * the stream message(amf0/amf3), over NetStream, the midst state(we guess).
+   * rarely used, e.g. play("mp4:mystram.f4v")
+   */
+  #define RTMP_CID_OverStream2                    0x08
+  /**
+   * the stream message(video), over NetStream
+   * generally use 0x06.
+   */
+  #define RTMP_CID_Video                          0x06
+  /**
+   * the stream message(audio), over NetStream.
+   * generally use 0x07.
+   */
+  #define RTMP_CID_Audio                          0x07
+  ```
+
+- $Message Stream ID=(Chunk ID - 4) / 5 + 1$。所以一般情况下 $Message Stream ID = 1$。
 
 
 
