@@ -21,9 +21,27 @@
     <ClCompile Include="logger.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="rtmp.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="amf.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="logger.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="rt_status.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="rt_defines.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="rtmp.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="amf.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

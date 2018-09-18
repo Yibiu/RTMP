@@ -146,11 +146,17 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="amf.cpp" />
     <ClCompile Include="logger.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="rtmp.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="amf.h" />
     <ClInclude Include="logger.h" />
+    <ClInclude Include="rtmp.h" />
+    <ClInclude Include="rt_defines.h" />
+    <ClInclude Include="rt_status.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
