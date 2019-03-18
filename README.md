@@ -22,7 +22,9 @@ references:
 
 [带你吃透RTMP](https://www.cnblogs.com/lidabo/p/7233154.html)
 
+[rtmp信令交互过程分析四-发布(publish)](https://blog.csdn.net/Jacob_job/article/details/81866199)
 
+[rtmp信令交互过程分析一-概述](https://blog.csdn.net/Jacob_job/article/details/81866127)
 
 
 
