@@ -155,16 +155,17 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="amf.h" />
-    <ClInclude Include="logger.h" />
-    <ClInclude Include="rtmp.h" />
-    <ClInclude Include="rt_defines.h" />
-    <ClInclude Include="rt_status.h" />
+    <ClInclude Include="common\logger.h" />
+    <ClInclude Include="common\rt_defines.h" />
+    <ClInclude Include="common\rt_status.h" />
+    <ClInclude Include="rtmp_client.h" />
+    <ClInclude Include="sys_util.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="amf.cpp" />
-    <ClCompile Include="logger.cpp" />
+    <ClCompile Include="common\logger.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="rtmp.cpp" />
+    <ClCompile Include="rtmp_client.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
