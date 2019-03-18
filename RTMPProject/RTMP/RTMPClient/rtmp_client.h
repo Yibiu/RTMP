@@ -2,8 +2,8 @@
 #include <vector>
 #include <list>
 #include <map>
-#include "rt_status.h"
-#include "rt_defines.h"
+#include "common/rt_status.h"
+#include "common/rt_defines.h"
 #include "amf.h"
 
 

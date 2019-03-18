@@ -1,4 +1,4 @@
-#include "rtmp.h"
+#include "rtmp_client.h"
 
 
 CRTMPClient::CRTMPClient()
