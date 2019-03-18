@@ -1,5 +1,4 @@
 #pragma once
-#include <map>
 #include "common/rt_status.h"
 #include "common/rt_defines.h"
 #include "amf.h"
@@ -17,13 +16,16 @@ public:
 
 	rt_status_t create(const char *url);
 	void destroy();
-	rt_status_t connect(uint32_t timeout_secs, bool retry = false);
+	rt_status_t connect(uint32_t timeout_secs);
 	void disconnect();
 
 protected:
+	rt_status_t _init_network();
+	void _deinit_network();
+	rt_status_t _parse_url(const char *url);
 
 protected:
-
+	rtmp_context_t _context;
 };
 
 
@@ -40,9 +42,7 @@ public:
 	void disconnect();
 
 protected:
-	rt_status_t _init_network();
-	void _deinit_network();
-	rt_status_t _parse_url(const char *url);
+	
 	rt_status_t _handshake();
 	rt_status_t _send_conn_packet();
 	rt_status_t _connect_stream();

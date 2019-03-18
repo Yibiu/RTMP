@@ -1,6 +1,137 @@
 #include "rtmp_client.h"
 
 
+CRTMPClient::CRTMPClient()
+{
+}
+
+CRTMPClient::~CRTMPClient()
+{
+}
+
+rt_status_t CRTMPClient::create(const char *url)
+{
+}
+
+void CRTMPClient::destroy()
+{
+}
+
+rt_status_t CRTMPClient::connect(uint32_t timeout_secs)
+{
+}
+
+void CRTMPClient::disconnect()
+{
+
+}
+
+
+rt_status_t CRTMPClient::_init_network()
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	WORD version = MAKEWORD(2, 2);
+	WSADATA wsaData;
+	if (0 != WSAStartup(version, &wsaData)) {
+		status = RT_STATUS_NETWORK_SETUP;
+	}
+
+	return status;
+}
+
+void CRTMPClient::_deinit_network()
+{
+	WSACleanup();
+}
+
+rt_status_t CRTMPClient::_parse_url(const char *url)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	std::string url_str = url;
+	do {
+		if (url_str.empty()) {
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
+		}
+
+		// Parse protocol
+		size_t pos = url_str.find("://");
+		if (pos == std::string::npos) {
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
+		}
+		std::string proto_str = url_str.substr(0, pos);
+		if (0 == proto_str.compare("rtmp")) {
+			_context.protocol = RTMP_PROTOCOL_RTMP;
+		}
+		else if (0 == proto_str.compare("rtmpt")) {
+			_context.protocol = RTMP_PROTOCOL_RTMPT;
+		}
+		else if (0 == proto_str.compare("rtmpe")) {
+			_context.protocol = RTMP_PROTOCOL_RTMPE;
+		}
+		else {
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
+		}
+
+		// Parse host and port
+		std::string rest_str = url_str.substr(pos + 3);
+		if (rest_str.empty()) {
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
+		}
+		pos = rest_str.find("/");
+		if (pos == std::string::npos) {
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
+		}
+		std::string host_str = rest_str.substr(0, pos);
+		rest_str = rest_str.substr(pos + 1);
+		if (host_str.empty() || rest_str.empty()) {
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
+		}
+		pos = host_str.find(":");
+		if (pos == std::string::npos) {
+			_context.host = host_str;
+			_context.port = RTMP_DEFAULT_PORT;
+		}
+		else {
+			_context.host = host_str.substr(0, pos);
+			std::string port_str = host_str.substr(pos + 1);
+			if (port_str.empty()) {
+				_context.port = RTMP_DEFAULT_PORT;
+			}
+			else {
+				_context.port = std::stoi(port_str);
+			}
+		}
+
+		// Parse application and stream
+		pos = rest_str.find_last_of("/");
+		if (pos == std::string::npos) {
+			_context.app = rest_str;
+			_context.stream = "";
+		}
+		else {
+			_context.app = rest_str.substr(0, pos);
+			_context.stream = rest_str.substr(pos + 1);
+		}
+	} while (false);
+
+	return status;
+}
+
+
+
+
+
+
+
+
 CRTMPClientEx::CRTMPClientEx()
 {
 
@@ -105,19 +236,6 @@ void CRTMPClientEx::disconnect()
 
 }
 
-
-rt_status_t CRTMPClientEx::_init_network()
-{
-	rt_status_t status = RT_STATUS_SUCCESS;
-
-
-	return status;
-}
-
-void CRTMPClientEx::_deinit_network()
-{
-
-}
 
 // "rtmp://hostname[:port]/app[/appinstance][/...]"
 // application = app[/appinstance][/...]

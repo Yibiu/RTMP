@@ -18,19 +18,22 @@
     <ClInclude Include="amf.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="rtmp_client.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="sys_util.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
     <ClInclude Include="common\logger.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="common\rt_defines.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="common\rt_defines_ex.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
     <ClInclude Include="common\rt_status.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="rtmp_client.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="sys_util.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
@@ -41,10 +44,10 @@
     <ClCompile Include="amf.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="common\logger.cpp">
+    <ClCompile Include="rtmp_client.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="rtmp_client.cpp">
+    <ClCompile Include="common\logger.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

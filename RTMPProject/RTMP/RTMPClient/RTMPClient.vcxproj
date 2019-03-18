@@ -157,6 +157,7 @@
     <ClInclude Include="amf.h" />
     <ClInclude Include="common\logger.h" />
     <ClInclude Include="common\rt_defines.h" />
+    <ClInclude Include="common\rt_defines_ex.h" />
     <ClInclude Include="common\rt_status.h" />
     <ClInclude Include="rtmp_client.h" />
     <ClInclude Include="sys_util.h" />
