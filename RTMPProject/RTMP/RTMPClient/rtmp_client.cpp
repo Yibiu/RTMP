@@ -1,17 +1,17 @@
 #include "rtmp_client.h"
 
 
-CRTMPClient::CRTMPClient()
+CRTMPClientEx::CRTMPClientEx()
 {
 
 }
 
-CRTMPClient::~CRTMPClient()
+CRTMPClientEx::~CRTMPClientEx()
 {
 
 }
 
-rt_status_t CRTMPClient::create(const char *url)
+rt_status_t CRTMPClientEx::create(const char *url)
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
@@ -38,7 +38,7 @@ rt_status_t CRTMPClient::create(const char *url)
 	return status;
 }
 
-void CRTMPClient::destroy()
+void CRTMPClientEx::destroy()
 {
 	_deinit_network();
 	if (NULL != _context_ptr) {
@@ -47,7 +47,7 @@ void CRTMPClient::destroy()
 	}
 }
 
-rt_status_t CRTMPClient::connect(uint32_t timeout_secs, bool retry)
+rt_status_t CRTMPClientEx::connect(uint32_t timeout_secs, bool retry)
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
@@ -100,13 +100,13 @@ rt_status_t CRTMPClient::connect(uint32_t timeout_secs, bool retry)
 	return status;
 }
 
-void CRTMPClient::disconnect()
+void CRTMPClientEx::disconnect()
 {
 
 }
 
 
-rt_status_t CRTMPClient::_init_network()
+rt_status_t CRTMPClientEx::_init_network()
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
@@ -114,14 +114,14 @@ rt_status_t CRTMPClient::_init_network()
 	return status;
 }
 
-void CRTMPClient::_deinit_network()
+void CRTMPClientEx::_deinit_network()
 {
 
 }
 
 // "rtmp://hostname[:port]/app[/appinstance][/...]"
 // application = app[/appinstance][/...]
-rt_status_t CRTMPClient::_parse_url(const char *url)
+rt_status_t CRTMPClientEx::_parse_url(const char *url)
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
@@ -180,7 +180,7 @@ rt_status_t CRTMPClient::_parse_url(const char *url)
 	return status;
 }
 
-rt_status_t CRTMPClient::_handshake()
+rt_status_t CRTMPClientEx::_handshake()
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
@@ -232,7 +232,7 @@ rt_status_t CRTMPClient::_handshake()
 	return status;
 }
 
-rt_status_t CRTMPClient::_send_conn_packet()
+rt_status_t CRTMPClientEx::_send_conn_packet()
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
@@ -286,7 +286,7 @@ rt_status_t CRTMPClient::_send_conn_packet()
 	return _send_packet(&packet);
 }
 
-rt_status_t CRTMPClient::_connect_stream()
+rt_status_t CRTMPClientEx::_connect_stream()
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
@@ -294,7 +294,7 @@ rt_status_t CRTMPClient::_connect_stream()
 }
 
 // No optimize for CHUNK_TYPE0
-rt_status_t CRTMPClient::_send_packet(rt_packet_t *packet_ptr)
+rt_status_t CRTMPClientEx::_send_packet(rt_packet_t *packet_ptr)
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
@@ -452,7 +452,7 @@ rt_status_t CRTMPClient::_send_packet(rt_packet_t *packet_ptr)
 	return status;
 }
 
-bool CRTMPClient::_send(uint32_t size, const uint8_t *data_ptr)
+bool CRTMPClientEx::_send(uint32_t size, const uint8_t *data_ptr)
 {
 	if (0 == size)
 		return true;
@@ -480,7 +480,7 @@ bool CRTMPClient::_send(uint32_t size, const uint8_t *data_ptr)
 	return (0 == size);
 }
 
-bool CRTMPClient::_recv(uint32_t size, uint8_t *data_ptr)
+bool CRTMPClientEx::_recv(uint32_t size, uint8_t *data_ptr)
 {
 	if (0 == size)
 		return true;
@@ -512,7 +512,7 @@ bool CRTMPClient::_recv(uint32_t size, uint8_t *data_ptr)
 	return (0 == size);
 }
 
-int CRTMPClient::_recv_buffer()
+int CRTMPClientEx::_recv_buffer()
 {
 	if (0 == _context_ptr->sock.avail) {
 		_context_ptr->sock.ptr = _context_ptr->sock.buf;

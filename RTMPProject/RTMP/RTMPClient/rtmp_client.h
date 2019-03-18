@@ -1,17 +1,38 @@
 #pragma once
-#include <vector>
-#include <list>
 #include <map>
 #include "common/rt_status.h"
 #include "common/rt_defines.h"
 #include "amf.h"
 
 
+/**
+* @brief:
+* RTMP client
+*/
 class CRTMPClient
 {
 public:
 	CRTMPClient();
 	virtual ~CRTMPClient();
+
+	rt_status_t create(const char *url);
+	void destroy();
+	rt_status_t connect(uint32_t timeout_secs, bool retry = false);
+	void disconnect();
+
+protected:
+
+protected:
+
+};
+
+
+
+class CRTMPClientEx
+{
+public:
+	CRTMPClientEx();
+	virtual ~CRTMPClientEx();
 
 	rt_status_t create(const char *url);
 	void destroy();
