@@ -167,10 +167,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="RTMPClient.cpp" />
+    <ClCompile Include="rtmp_test.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="RTMPClient.h" />
+    <ClInclude Include="rtmp_test.h" />
     <ClInclude Include="statistics.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

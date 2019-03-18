@@ -18,15 +18,15 @@
     <ClCompile Include="main.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="RTMPClient.cpp">
+    <ClCompile Include="rtmp_test.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="RTMPClient.h">
+    <ClInclude Include="statistics.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="statistics.h">
+    <ClInclude Include="rtmp_test.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

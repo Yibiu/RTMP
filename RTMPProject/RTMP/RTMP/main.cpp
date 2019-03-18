@@ -1,9 +1,9 @@
-#include "RTMPClient.h"
+#include "rtmp_test.h"
 
 
 int main()
 {
-	CRTMPClient rtmp_client;
+	CRTMPTest rtmp_test;
 
 	rtmp_metadata_t metadata = { 0 };
 	metadata.width = 1920;
@@ -16,11 +16,11 @@ int main()
 	metadata.samples_per_frame = 1024;
 	metadata.datarate = 64000;
 	do {
-		if (!rtmp_client.create("E:/TEST/Videos/11.mp4", metadata, STREAM_FILE_MP4)) {
+		if (!rtmp_test.create("E:/TEST/Videos/11.mp4", metadata, STREAM_FILE_MP4)) {
 			printf("RTMP create error!\n");
 			break;
 		}
-		if (!rtmp_client.connect("rtmp://192.168.0.100:1935/live/stream", 5)) {
+		if (!rtmp_test.connect("rtmp://192.168.0.100:1935/live/stream", 5)) {
 			printf("RTMP connect error!\n");
 			break;
 		}
@@ -28,8 +28,8 @@ int main()
 		printf("ENTER to exit...\n");
 		getchar();
 	} while (false);
-	rtmp_client.disconnect();
-	rtmp_client.destroy();
+	rtmp_test.disconnect();
+	rtmp_test.destroy();
 
 	return 0;
 }

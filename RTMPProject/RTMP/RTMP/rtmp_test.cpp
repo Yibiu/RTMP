@@ -1,4 +1,4 @@
-#include "RTMPClient.h"
+#include "rtmp_test.h"
 
 
 /***************************************************
@@ -72,7 +72,7 @@ char* _put_amf_double(char *c, double d)
 /*********************************************************
 * RTMPClient
 **********************************************************/
-CRTMPClient::CRTMPClient()
+CRTMPTest::CRTMPTest()
 {
 	_rtmp_ptr = NULL;
 	_manage.fmt_context = NULL;
@@ -87,11 +87,11 @@ CRTMPClient::CRTMPClient()
 #endif
 }
 
-CRTMPClient::~CRTMPClient()
+CRTMPTest::~CRTMPTest()
 {
 }
 
-bool CRTMPClient::create(const char *path_ptr, rtmp_metadata_t &metadata, stream_type_t type)
+bool CRTMPTest::create(const char *path_ptr, rtmp_metadata_t &metadata, stream_type_t type)
 {
 	bool success = false;
 
@@ -133,7 +133,7 @@ bool CRTMPClient::create(const char *path_ptr, rtmp_metadata_t &metadata, stream
 	return success;
 }
 
-void CRTMPClient::destroy()
+void CRTMPTest::destroy()
 {
 	if (NULL != _rtmp_ptr) {
 		RTMP_Free(_rtmp_ptr);
@@ -149,7 +149,7 @@ void CRTMPClient::destroy()
 #endif
 }
 
-bool CRTMPClient::connect(const char *url_ptr, uint32_t timeout_secs)
+bool CRTMPTest::connect(const char *url_ptr, uint32_t timeout_secs)
 {
 	bool success = false;
 
@@ -183,7 +183,7 @@ bool CRTMPClient::connect(const char *url_ptr, uint32_t timeout_secs)
 	return success;
 }
 
-void CRTMPClient::disconnect()
+void CRTMPTest::disconnect()
 {
 	_running = false;
 	if (NULL != _thread_ptr) {
@@ -196,7 +196,7 @@ void CRTMPClient::disconnect()
 	}
 }
 
-void CRTMPClient::thread_proc_internal()
+void CRTMPTest::thread_proc_internal()
 {
 	printf("-------------- Enter Thread ---------------\n");
 
@@ -254,7 +254,7 @@ void CRTMPClient::thread_proc_internal()
 }
 
 
-bool CRTMPClient::_init_sockets()
+bool CRTMPTest::_init_sockets()
 {
 	WORD version;
 	WSADATA wsaData;
@@ -263,12 +263,12 @@ bool CRTMPClient::_init_sockets()
 	return (WSAStartup(version, &wsaData) == 0);
 }
 
-void CRTMPClient::_cleanup_sockets()
+void CRTMPTest::_cleanup_sockets()
 {
 	WSACleanup();
 }
 
-bool CRTMPClient::_parse_streams(rtmp_metadata_t &metadata, stream_type_t type)
+bool CRTMPTest::_parse_streams(rtmp_metadata_t &metadata, stream_type_t type)
 {
 	for (int i = 0; i < _manage.fmt_context->nb_streams; i++) {
 		// Video stream
@@ -348,7 +348,7 @@ bool CRTMPClient::_parse_streams(rtmp_metadata_t &metadata, stream_type_t type)
 	return true;
 }
 
-bool CRTMPClient::_send_metadata(const rtmp_metadata_t &metadata)
+bool CRTMPTest::_send_metadata(const rtmp_metadata_t &metadata)
 {
 	if (NULL == _rtmp_ptr || !RTMP_IsConnected(_rtmp_ptr))
 		return false;
@@ -442,7 +442,7 @@ bool CRTMPClient::_send_metadata(const rtmp_metadata_t &metadata)
 	return true;
 }
 
-bool CRTMPClient::_send_video(uint32_t size, const uint8_t *data_ptr, uint64_t pts, bool keyframe)
+bool CRTMPTest::_send_video(uint32_t size, const uint8_t *data_ptr, uint64_t pts, bool keyframe)
 {
 	if (NULL == _rtmp_ptr || !RTMP_IsConnected(_rtmp_ptr) || 0 == size || NULL == data_ptr)
 		return false;
@@ -480,7 +480,7 @@ bool CRTMPClient::_send_video(uint32_t size, const uint8_t *data_ptr, uint64_t p
 	return true;
 }
 
-bool CRTMPClient::_send_audio(uint32_t size, const uint8_t *data_ptr, uint64_t pts)
+bool CRTMPTest::_send_audio(uint32_t size, const uint8_t *data_ptr, uint64_t pts)
 {
 	if (NULL == _rtmp_ptr || !RTMP_IsConnected(_rtmp_ptr) || 0 == size || NULL == data_ptr)
 		return false;

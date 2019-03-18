@@ -14,7 +14,7 @@ extern "C"
 #include "statistics.h"
 
 
-#define LOG_FILE	1
+//#define LOG_FILE	1
 
 #define RTMP_METADATA_SIZE			1024
 #define RTMP_RESERVED_HEAD_SIZE		9
@@ -67,11 +67,11 @@ typedef struct _fmt_manage
 * Read frames from file --> dispatch by fps --> rtmp.
 * Only video frames. The pts read from file may be 0.
 */
-class CRTMPClient
+class CRTMPTest
 {
 public:
-	CRTMPClient();
-	virtual ~CRTMPClient();
+	CRTMPTest();
+	virtual ~CRTMPTest();
 
 	bool create(const char *path_ptr, rtmp_metadata_t &metadata, stream_type_t type);
 	void destroy();
@@ -80,7 +80,7 @@ public:
 
 	static void thread_proc(void *param)
 	{
-		CRTMPClient *this_ptr = (CRTMPClient *)param;
+		CRTMPTest *this_ptr = (CRTMPTest *)param;
 		if (NULL != this_ptr)
 			this_ptr->thread_proc_internal();
 	}
