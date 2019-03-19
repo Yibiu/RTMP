@@ -11,14 +11,88 @@ CRTMPClient::~CRTMPClient()
 
 rt_status_t CRTMPClient::create(const char *url)
 {
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	do {
+		status = _parse_url(url);
+		CHECK_BREAK(rt_is_success(status));
+		if (RTMP_PROTOCOL_RTMP != _context.protocol) {
+			status = RT_STATUS_NOT_SUPPORT;
+			break;
+		}
+
+		status = _init_network();
+		CHECK_BREAK(rt_is_success(status));
+	} while (false);
+
+	if (!rt_is_success(status)) {
+		destroy();
+	}
+
+	return status;
 }
 
 void CRTMPClient::destroy()
 {
+	_deinit_network();
 }
 
 rt_status_t CRTMPClient::connect(uint32_t timeout_secs)
 {
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	do {
+		_context.socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (-1 == _context.socket) {
+			status = RT_STATUS_SOCKET_ERR;
+			break;
+		}
+
+		// Connect timeout
+		sockaddr_in service;
+		memset(&service, 0x00, sizeof(sockaddr_in));
+		service.sin_family = AF_INET;
+		service.sin_addr.s_addr = inet_addr(_context.host.c_str());
+		if (INADDR_NONE == service.sin_addr.s_addr) {
+			hostent *host = gethostbyname(_context.host.c_str());
+			if (NULL == host || NULL == host->h_addr) {
+				status = RT_STATUS_INVALID_PARAMETER;
+				break;
+			}
+			service.sin_addr = *(struct in_addr *)host->h_addr;
+		}
+		service.sin_port = htons(_context.port);
+		if (::connect(_context.socket, (sockaddr *)&service, sizeof(sockaddr)) < 0) {
+			status = RT_STATUS_SOCKET_ERR;
+			break;
+		}
+
+		// Rcv and send timeout
+#ifdef WIN32
+		int tv = timeout_secs * 1000;
+#else
+		timeval tv = { timeout_secs, 0 };
+#endif
+		if (0 != setsockopt(_context.socket, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(tv))) {
+			status = RT_STATUS_SOCKET_ERR;
+			break;
+		}
+		if (setsockopt(_context.socket, SOL_SOCKET, SO_SNDTIMEO, (char *)&tv, sizeof(tv))) {
+			status = RT_STATUS_SOCKET_ERR;
+			break;
+		}
+		int on = 1;
+		setsockopt(_context.socket, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof(on));
+
+		// Simple handshake
+		status = _handshake();
+		CHECK_BREAK(rt_is_success(status));
+		status = _send_conn_packet();
+		CHECK_BREAK(rt_is_success(status));
+
+	} while (false);
+
+	return status;
 }
 
 void CRTMPClient::disconnect()
@@ -125,224 +199,52 @@ rt_status_t CRTMPClient::_parse_url(const char *url)
 	return status;
 }
 
-
-
-
-
-
-
-
-CRTMPClientEx::CRTMPClientEx()
-{
-
-}
-
-CRTMPClientEx::~CRTMPClientEx()
-{
-
-}
-
-rt_status_t CRTMPClientEx::create(const char *url)
+rt_status_t CRTMPClient::_handshake()
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
 	do {
-		if (NULL == url) {
-			status = RT_STATUS_INVALID_PARAMETER;
-			break;
-		}
-		_context_ptr = new rt_context_t;
-		if (NULL == _context_ptr) {
-			status = RT_STATUS_MEMORY_ALLOCATE;
-			break;
-		}
-		status = _parse_url(url);
-		CHECK_BREAK(rt_is_success(status));
-		status = _init_network();
-		CHECK_BREAK(rt_is_success(status));
-	} while (false);
-
-	if (!rt_is_success(status)) {
-		destroy();
-	}
-
-	return status;
-}
-
-void CRTMPClientEx::destroy()
-{
-	_deinit_network();
-	if (NULL != _context_ptr) {
-		delete _context_ptr;
-		_context_ptr = NULL;
-	}
-}
-
-rt_status_t CRTMPClientEx::connect(uint32_t timeout_secs, bool retry)
-{
-	rt_status_t status = RT_STATUS_SUCCESS;
-
-	do {
-		sockaddr_in service;
-		memset(&service, 0x00, sizeof(sockaddr_in));
-		service.sin_addr.s_addr = inet_addr(_context_ptr->link.hostname.c_str());
-		if (INADDR_NONE == service.sin_addr.s_addr) {
-			hostent *host = gethostbyname(_context_ptr->link.hostname.c_str());
-			if (NULL == host || NULL == host->h_addr) {
-				status = RT_STATUS_INVALID_PARAMETER;
-				break;
-			}
-			service.sin_addr = *(struct in_addr *)host->h_addr;
-		}
-		service.sin_port = htons(_context_ptr->link.port);
-
-		_context_ptr->sock.socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-		if (-1 == _context_ptr->sock.socket) {
-			status = RT_STATUS_SOCK_ERROR;
-			break;
-		}
-		if (::connect(_context_ptr->sock.socket, (sockaddr *)&service, sizeof(sockaddr)) < 0) {
-			status = RT_STATUS_CONN_ERROR;
-			break;
-		}
-#ifdef WIN32
-		int tv = timeout_secs * 1000;
-#else
-		timeval tv = { timeout_secs, 0 };
-#endif
-		if (setsockopt(_context_ptr->sock.socket, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(tv))) {
-			status = RT_STATUS_SOCK_ERROR;
-			break;
-		}
-		if (setsockopt(_context_ptr->sock.socket, SOL_SOCKET, SO_SNDTIMEO, (char *)&tv, sizeof(tv))) {
-			status = RT_STATUS_SOCK_ERROR;
-			break;
-		}
-		int on = 1;
-		setsockopt(_context_ptr->sock.socket, IPPROTO_TCP, TCP_NODELAY, (char *)&on, sizeof(on));
-
-		status = _handshake();
-		CHECK_BREAK(rt_is_success(status));
-		status = _send_conn_packet();
-		CHECK_BREAK(rt_is_success(status));
-
-	} while (false);
-
-	return status;
-}
-
-void CRTMPClientEx::disconnect()
-{
-
-}
-
-
-// "rtmp://hostname[:port]/app[/appinstance][/...]"
-// application = app[/appinstance][/...]
-rt_status_t CRTMPClientEx::_parse_url(const char *url)
-{
-	rt_status_t status = RT_STATUS_SUCCESS;
-
-	string str_url = url;
-	size_t pos = string::npos;
-	do {
-		if (str_url.empty()) {
-			status = RT_STATUS_INVALID_PARAMETER;
-			break;
-		}
-		// protocol
-		size_t pos = str_url.find("://");
-		if (string::npos == pos) {
-			status = RT_STATUS_INVALID_PARAMETER;
-			break;
-		}
-		_context_ptr->link.protocol = str_url.substr(0, pos);
-		// hostname and port
-		str_url = str_url.substr(pos + 3);
-		if (str_url.empty()) {
-			status = RT_STATUS_INVALID_PARAMETER;
-			break;
-		}
-		string host_and_port = str_url;
-		pos = str_url.find("/");
-		if (string::npos != pos) {
-			host_and_port = str_url.substr(0, pos);
-			str_url = str_url.substr(pos + 1);
-		}
-		pos = host_and_port.find(":");
-		if (string::npos == pos) {
-			_context_ptr->link.hostname = host_and_port;
-			_context_ptr->link.port = RTMP_DEFAULT_PORT;
-		}
-		else {
-			_context_ptr->link.hostname = host_and_port.substr(0, pos);
-			_context_ptr->link.port = atoi(host_and_port.substr(pos + 1).c_str());
-		}
-		// app
-		if (str_url.empty()) {
-			break;
-		}
-		pos = str_url.find_last_of("/");
-		if (string::npos == pos) {
-			_context_ptr->link.app = str_url;
-			break;
-		}
-		else {
-			_context_ptr->link.app = str_url.substr(0, pos);
-			str_url = str_url.substr(pos + 1);
-		}
-		// playpath
-		_context_ptr->link.playpath = str_url;
-	} while (false);
-
-	return status;
-}
-
-rt_status_t CRTMPClientEx::_handshake()
-{
-	rt_status_t status = RT_STATUS_SUCCESS;
-
-	do {
-		// Send C0 C1
+		// C0 C1 ---->
 		uint8_t C0C1[RTMP_HANDSHAKE_SIG_SIZE + 1];
-		C0C1[0] = 0x03;
-		uint32_t time = htonl(rt_gettime());
+		C0C1[0] = RTMP_VERSION;
+		uint32_t time = htonl(gettime());
 		memcpy(C0C1 + 1, &time, 4);
 		memset(C0C1 + 5, 0x00, 4);
-		for (int i = 8; i < RTMP_HANDSHAKE_SIG_SIZE; i++) {
-			C0C1[i + 1] = (uint8_t)(rand() % 256);
+		for (int i = 9; i < RTMP_HANDSHAKE_SIG_SIZE; i++) {
+			C0C1[i] = (uint8_t)(rand() % 256);
 		}
 		if (!_send(RTMP_HANDSHAKE_SIG_SIZE + 1, C0C1)) {
-			status = RT_STATUS_SEND_ERROR;
+			status = RT_STATUS_SOCKET_SEND;
 			break;
 		}
-		// Recv S0 S1
+		// <---- S0
 		uint8_t S0;
-		uint8_t S1[RTMP_HANDSHAKE_SIG_SIZE];
-		if (1 != _recv(1, &S0)) {
-			status = RT_STATUS_RECV_ERROR;
+		if (!_recv(1, &S0)) {
+			status = RT_STATUS_SOCKET_RECV;
 			break;
 		}
 		if (C0C1[0] != S0) {
-			status = RT_STATUS_MISMATCH;
+			status = RT_STATUS_NOT_SUPPORT;
 			break;
 		}
-		if (RTMP_HANDSHAKE_SIG_SIZE != _recv(RTMP_HANDSHAKE_SIG_SIZE, S1)) {
-			status = RT_STATUS_RECV_ERROR;
+		// <---- S1
+		uint8_t S1[RTMP_HANDSHAKE_SIG_SIZE];
+		if (!_recv(RTMP_HANDSHAKE_SIG_SIZE, S1)) {
+			status = RT_STATUS_SOCKET_RECV;
 			break;
 		}
-		// Send C2(echo to S1)
+		// C2(echo to S1) ---->
 		if (!_send(RTMP_HANDSHAKE_SIG_SIZE, S1)) {
-			status = RT_STATUS_SEND_ERROR;
+			status = RT_STATUS_SOCKET_SEND;
 			break;
 		}
-		// Recv S2(echo to C1)
-		if (RTMP_HANDSHAKE_SIG_SIZE != _recv(RTMP_HANDSHAKE_SIG_SIZE, S1)) {
-			status = RT_STATUS_RECV_ERROR;
+		// <---- S2(echo to C1)
+		if (_recv(RTMP_HANDSHAKE_SIG_SIZE, S1)) {
+			status = RT_STATUS_SOCKET_RECV;
 			break;
 		}
 		if (0 != memcmp(S1, C0C1 + 1, RTMP_HANDSHAKE_SIG_SIZE)) {
-			status = RT_STATUS_MISMATCH;
+			status = RT_STATUS_NOT_SUPPORT;
 			break;
 		}
 	} while (false);
@@ -350,10 +252,11 @@ rt_status_t CRTMPClientEx::_handshake()
 	return status;
 }
 
-rt_status_t CRTMPClientEx::_send_conn_packet()
+rt_status_t CRTMPClient::_invoke_connect()
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
+	/*
 	uint8_t buf[RTMP_TEMP_BUFFER_SIZE];
 	rt_packet_t packet;
 	packet.chunk_type = RT_CHUNK_TYPE0;
@@ -368,7 +271,7 @@ rt_status_t CRTMPClientEx::_send_conn_packet()
 	uint8_t *ptr = packet.data_ptr;
 	ptr = amf_encodestr(ptr, RTMP_AVC_CONNECT);
 	ptr = amf_encodenum(ptr, ++_context_ptr->invokes_count);
-	*ptr++ = AMF_OBJECT; 
+	*ptr++ = AMF_OBJECT;
 	ptr = amf_encode_namedstr(ptr, RTMP_AVC_APP, _context_ptr->link.app.c_str());
 	if (_context_ptr->push_mode) {
 		ptr = amf_encode_namedstr(ptr, RTMP_AVC_TYPE, RTMP_AVC_NONPRIVATE);
@@ -402,184 +305,23 @@ rt_status_t CRTMPClientEx::_send_conn_packet()
 	}
 	packet.valid = ptr - packet.data_ptr;
 	return _send_packet(&packet);
-}
-
-rt_status_t CRTMPClientEx::_connect_stream()
-{
-	rt_status_t status = RT_STATUS_SUCCESS;
-
-
-}
-
-// No optimize for CHUNK_TYPE0
-rt_status_t CRTMPClientEx::_send_packet(rt_packet_t *packet_ptr)
-{
-	rt_status_t status = RT_STATUS_SUCCESS;
-
-	do {
-		if (NULL == packet_ptr) {
-			status = RT_STATUS_INVALID_PARAMETER;
-			break;
-		}
-		uint32_t last_time_delta = 0;
-		map<uint32_t, rt_packet_t>::iterator iter;
-		iter = _last_packets.find(packet_ptr->chunk_stream_id);
-		if (iter != _last_packets.end() && RT_CHUNK_TYPE0 != packet_ptr->chunk_type) {
-			rt_packet_t &pre_packet = iter->second;
-
-			// Optimize
-			if (RT_CHUNK_TYPE1 == packet_ptr->chunk_type) {
-				if (pre_packet.valid == packet_ptr->valid && pre_packet.msg_type == packet_ptr->msg_type) {
-					packet_ptr->chunk_type = RT_CHUNK_TYPE2;
-				}
-			}
-			if (RT_CHUNK_TYPE2 == packet_ptr->chunk_type) {
-				if (pre_packet.timestamp == packet_ptr->timestamp) {
-					packet_ptr->chunk_type = RT_CHUNK_TYPE3;
-				}
-			}
-			
-			last_time_delta = pre_packet.timestamp;
-		}
-
-		uint32_t t = packet_ptr->timestamp - last_time_delta;
-
-		uint32_t reserved = 0;
-		uint8_t fmt = 0;
-		uint32_t fmt_extend = 0;
-		switch (packet_ptr->chunk_type)
-		{
-		case RT_CHUNK_TYPE0:
-			reserved = 1 + 11;
-			fmt = (0x00 << 6);
-			break;
-		case RT_CHUNK_TYPE1:
-			reserved = 1 + 7;
-			fmt = (0x01 << 6);
-			break;
-		case RT_CHUNK_TYPE2:
-			reserved = 1 + 3;
-			fmt = (0x02 << 6);
-			break;
-		case RT_CHUNK_TYPE3:
-			reserved = 1 + 0;
-			fmt = (0x03 << 6);
-			break;
-		default:
-			status = RT_STATUS_INVALID_PARAMETER;
-			break;
-		}
-		CHECK_BREAK(rt_is_success(status));
-		if (packet_ptr->chunk_stream_id > 319) {
-			reserved += 2;
-			fmt_extend = 2;
-		}
-		else if (packet_ptr->chunk_stream_id > 63) {
-			reserved += 1;
-			fmt_extend = 1;
-		}
-		if (t >= 0xFFFFFF) {
-			reserved += 4;
-		}
-		// Fill header
-		uint8_t *header_ptr = packet_ptr->data_ptr - reserved;
-		uint8_t *ptr = header_ptr;
-		switch (fmt_extend)
-		{
-		case 0:
-			fmt |= packet_ptr->chunk_stream_id;
-			*ptr++ = fmt;
-			break;
-		case 1:
-			*ptr++ = fmt;
-			*ptr++ = ((packet_ptr->chunk_stream_id - 64) & 0xff);
-			break;
-		case 2:
-			fmt |= 0x01;
-			*ptr++ = fmt;
-			*ptr++ = ((packet_ptr->chunk_stream_id - 64) & 0xff);
-			*ptr++ = (((packet_ptr->chunk_stream_id - 64) >> 8) & 0xff);
-			break;
-		default:
-			break;
-		}
-		if (RT_CHUNK_TYPE3 != packet_ptr->chunk_stream_id) {
-			ptr = amf_encodeu24(ptr, t > 0xFFFFFF ? 0xFFFFFF : t);
-		}
-		if (RT_CHUNK_TYPE3 != packet_ptr->chunk_stream_id
-			&& RT_CHUNK_TYPE2 != packet_ptr->chunk_stream_id) {
-			ptr = amf_encodeu24(ptr, packet_ptr->valid);
-			*ptr++ = packet_ptr->msg_type;
-		}
-		if (RT_CHUNK_TYPE0 == packet_ptr->chunk_stream_id) {
-			ptr = amf_encodeu32(ptr, packet_ptr->msg_stream_id);
-		}
-		if (t >= 0xFFFFFF) {
-			ptr = amf_encodeu32(ptr, t);
-		}
-		// Send packet
-		uint8_t *data_ptr = packet_ptr->data_ptr;
-		uint32_t chunk_size = _context_ptr->out_chunk_size;
-		uint32_t head_size = reserved;
-		uint32_t data_size = packet_ptr->valid;
-		while (data_size + head_size > 0)
-		{
-			if (data_size < chunk_size)
-				chunk_size = data_size;
-
-			if (!_send(chunk_size + head_size, header_ptr)) {
-				status = RT_STATUS_SEND_ERROR;
-				break;
-			}
-			head_size = 0;
-			data_ptr += chunk_size;
-			data_size -= chunk_size;
-
-			// fill split chunk header to send
-			if (data_size > 0) {
-				head_size = 1 + fmt_extend;
-				header_ptr = data_ptr - head_size;
-				if (t >= 0xFFFFFF) {
-					head_size += 4;
-					header_ptr -= 4;
-				}
-				header_ptr[0] = (fmt | 0xc0);
-				if (1 == fmt_extend) {
-					header_ptr[1] = ((packet_ptr->chunk_stream_id - 64) & 0xff);
-				}
-				else if (2 == fmt_extend) {
-					header_ptr[1] = ((packet_ptr->chunk_stream_id - 64) & 0xff);
-					header_ptr[2] = (((packet_ptr->chunk_stream_id - 64) >> 8) & 0xff);
-				}
-				if (t >= 0xFFFFFF) {
-					amf_encodeu32(header_ptr + 1 + fmt_extend, t);
-				}
-			}
-		}
-		CHECK_BREAK(rt_is_success(status));
-
-		// Invoke a remote method
-		if (RT_MSG_TYPE_INVOKE == packet_ptr->msg_type) {
-			// TODO
-			// ...
-		}
-
-		_last_packets[packet_ptr->chunk_stream_id] = *packet_ptr;
-	} while (false);
+	*/
 
 	return status;
 }
 
-bool CRTMPClientEx::_send(uint32_t size, const uint8_t *data_ptr)
+bool CRTMPClient::_send(uint32_t size, const uint8_t *data_ptr)
 {
+	if (-1 == _context.socket || (size > 0 && NULL == data_ptr))
+		return false;
+
 	if (0 == size)
 		return true;
 
-	int ret = 0;
 	const uint8_t *ptr = data_ptr;
 	while (size > 0)
 	{
-		ret = send(_context_ptr->sock.socket, (char *)ptr, size, 0);
+		int ret = send(_context.socket, (char *)ptr, size, 0);
 		if (ret < 0) {
 			int err = SOCK_ERROR();
 			if (EINTR == err)
@@ -592,66 +334,207 @@ bool CRTMPClientEx::_send(uint32_t size, const uint8_t *data_ptr)
 		else {
 			size -= ret;
 			ptr += ret;
+			_context.bytes_out += ret;
 		}
 	}
 
 	return (0 == size);
 }
 
-bool CRTMPClientEx::_recv(uint32_t size, uint8_t *data_ptr)
+bool CRTMPClient::_recv(uint32_t size, uint8_t *data_ptr)
 {
+	if (-1 == _context.socket || (size > 0 && NULL == data_ptr))
+		return false;
+
 	if (0 == size)
 		return true;
 
-	bool error = false;
 	uint8_t *ptr = data_ptr;
 	while (size > 0)
 	{
-		uint32_t avail = _context_ptr->sock.avail;
-		if (0 == avail) {
-			if (_recv_buffer() < 1) {
-				error = true;
-				break;
-			}
-			avail = _context_ptr->sock.avail;
+		int ret = recv(_context.socket, (char *)ptr, size, 0);
+		if (ret < 0) {
+			int err = SOCK_ERROR();
+			if (EINTR == err)
+				continue;
+			break;
 		}
-
-		uint32_t readable = ((size < avail) ? size : avail);
-		memcpy(ptr, _context_ptr->sock.ptr, readable);
-		_context_ptr->sock.ptr += readable;
-		_context_ptr->sock.avail -= readable;
-		// TODO:
-		// bytes echo to server...
-
-		size -= readable;
-		ptr += readable;
+		else if (0 == ret) {
+			break;
+		}
+		else {
+			size -= ret;
+			ptr += ret;
+			_context.bytes_in += ret;
+		}
 	}
 
 	return (0 == size);
 }
 
-int CRTMPClientEx::_recv_buffer()
+rt_status_t CRTMPClient::_send_packet(rtmp_packet_t *pkt_ptr, bool queue)
 {
-	if (0 == _context_ptr->sock.avail) {
-		_context_ptr->sock.ptr = _context_ptr->sock.buf;
-	}
+	/**
+	* Chunk Header =
+	* Basic Header(1/2/3) + Msg Header(0/3/7/11) + Extend Timestamp(0/4)
+	*/
+	rt_status_t status = RT_STATUS_SUCCESS;
 
-	int ret = 0;
-	while (true)
-	{
-		int to_recv = sizeof(_context_ptr->sock.buf) - (_context_ptr->sock.ptr - _context_ptr->sock.buf)
-			- _context_ptr->sock.avail - 1; // Reserved 1 byte for *ptr
-		ret = recv(_context_ptr->sock.socket, (char *)_context_ptr->sock.ptr + _context_ptr->sock.avail, to_recv, 0);
-		if (-1 == ret) {
-			int err = SOCK_ERROR();
-			if (EINTR == err)
-				continue;
+	do {
+		if (NULL == pkt_ptr) {
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
 		}
-		else {
-			_context_ptr->sock.avail += ret;
-		}
-		break;
-	}
 
-	return ret;
+		// TODO:
+		// Packet optimization to support RTMP_CHUNK_TYPE_MEDIUM/
+		// /RTMP_CHUNK_TYPE_SMALL/RTMP_CHUNK_TYPE_MINIMUM
+		// ...
+
+		////////////////////////////////////////////////
+		// Reserve header size
+		uint32_t reserved = 0;
+		uint8_t fmt = 0;
+		uint32_t fmt_extend = 0;
+		switch (pkt_ptr->chk_type)
+		{
+		case RTMP_CHUNK_TYPE_LARGE:
+			reserved = 1 + 11;
+			fmt = (0x00 << 6);
+			break;
+		case RTMP_CHUNK_TYPE_MEDIUM:
+			reserved = 1 + 7;
+			fmt = (0x01 << 6);
+			break;
+		case RTMP_CHUNK_TYPE_SMALL:
+			reserved = 1 + 3;
+			fmt = (0x02 << 6);
+			break;
+		case RTMP_CHUNK_TYPE_MINIMUM:
+			reserved = 1 + 0;
+			fmt = (0x03 << 6);
+			break;
+		default:
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
+		}
+		CHECK_BREAK(rt_is_success(status));
+		// 319~:3 bytes
+		// 64~318: 2 bytes
+		// 0~63: 1 bytes
+		if (pkt_ptr->chk_stream_id > 319) {
+			reserved += 2;
+			fmt_extend = 2;
+		}
+		else if (pkt_ptr->chk_stream_id > 63) {
+			reserved += 1;
+			fmt_extend = 1;
+		}
+		// Extend timestamp
+		if (pkt_ptr->timestamp >= 0xFFFFFF) {
+			reserved += 4;
+		}
+
+		////////////////////////////////////////////////
+		// Fill header buffer
+		uint8_t *header_ptr = pkt_ptr->data_ptr - reserved;
+		uint8_t *ptr = header_ptr;
+		switch (fmt_extend)
+		{
+		case 0:
+			fmt |= pkt_ptr->chk_stream_id;
+			*ptr++ = fmt;
+			break;
+		case 1:
+			*ptr++ = fmt;
+			*ptr++ = ((pkt_ptr->chk_stream_id - 64) & 0xff);
+			break;
+		case 2:
+			fmt |= 0x01;
+			*ptr++ = fmt;
+			*ptr++ = ((pkt_ptr->chk_stream_id - 64) & 0xff);
+			*ptr++ = (((pkt_ptr->chk_stream_id - 64) >> 8) & 0xff);
+			break;
+		default:
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
+		}
+		CHECK_BREAK(rt_is_success(status));
+
+		if (RTMP_CHUNK_TYPE_MINIMUM != pkt_ptr->chk_type) {
+			//ptr = amf_encode_int24(ptr, pkt_ptr->timestamp >= 0xFFFFFF ? 0xFFFFFF : pkt_ptr->timestamp);
+		}
+		if (RTMP_CHUNK_TYPE_MINIMUM != pkt_ptr->chk_type
+			&& RTMP_CHUNK_TYPE_SMALL != pkt_ptr->chk_type) {
+			//ptr = amf_encodeu24(ptr, packet_ptr->valid);
+			*ptr++ = pkt_ptr->msg_type;
+		}
+		if (RTMP_CHUNK_TYPE_LARGE == pkt_ptr->chk_type) {
+			//ptr = amf_encodeu32(ptr, packet_ptr->msg_stream_id);
+		}
+		if (pkt_ptr->timestamp >= 0xFFFFFF) {
+			//ptr = amf_encodeu32(ptr, t);
+		}
+
+		////////////////////////////////////////////////
+		// Send packet
+		uint32_t chunk_size = _context.out_chunk_size;
+		uint32_t data_size = pkt_ptr->valid;
+		uint8_t *data_ptr = pkt_ptr->data_ptr;
+		while (data_size + reserved > 0)
+		{
+			if (data_size < chunk_size)
+				chunk_size = data_size;
+
+			if (!_send(chunk_size + reserved, header_ptr)) {
+				status = RT_STATUS_SOCKET_SEND;
+				break;
+			}
+			data_ptr += chunk_size;
+			data_size -= chunk_size;
+
+			// Fill header buffer of splitted frames(without Msg Header)
+			// Force chunk type = RTMP_CHUNK_TYPE_MINIMUM
+			reserved = 0;
+			if (data_size > 0) {
+				reserved = 1 + fmt_extend;
+				if (pkt_ptr->timestamp >= 0xFFFFFF) {
+					reserved += 4;
+				}
+				header_ptr = data_ptr - reserved;
+				header_ptr[0] = (fmt | 0xc0);
+				if (1 == fmt_extend) {
+					header_ptr[1] = ((pkt_ptr->chk_stream_id - 64) & 0xff);
+				}
+				else if (2 == fmt_extend) {
+					header_ptr[1] = ((pkt_ptr->chk_stream_id - 64) & 0xff);
+					header_ptr[2] = (((pkt_ptr->chk_stream_id - 64) >> 8) & 0xff);
+				}
+				if (pkt_ptr->timestamp >= 0xFFFFFF) {
+					//amf_encodeu32(header_ptr + 1 + fmt_extend, t);
+				}
+			}
+		}
+		CHECK_BREAK(rt_is_success(status));
+
+		////////////////////////////////////////////////
+		// Store for watting for results
+		// Invoke: xInvokeFunction...
+		if (RTMP_MSG_TYPE_INVOKE == pkt_ptr->msg_type) {
+			val_t invoke;
+			char *ptr = (char *)pkt_ptr->data_ptr + 1;
+			//amf_decode_string(ptr, invoke);
+
+			if (queue) {
+				ptr += invoke.len + 3;
+				//int txn = amf_decode_number(ptr);
+
+			}
+		}
+
+	} while (false);
+
+	return status;
 }
+
+

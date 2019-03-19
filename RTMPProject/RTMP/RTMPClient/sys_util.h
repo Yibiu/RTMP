@@ -87,5 +87,16 @@ typedef unsigned char uint8_t;
 #error "Unknown/unsupported byte order!"
 #endif
 
+
+static inline uint32_t gettime()
+{
+#ifdef _WIN32
+	return timeGetTime();
+#else
+	tms t;
+	return (times(&t) * 1000 / sysconf(_SC_CLK_TCK));
+#endif
+}
+
 #endif
 
