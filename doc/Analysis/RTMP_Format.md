@@ -23,6 +23,9 @@ Message为应用层的抽象，实际发送是将message 拆分为chunk发送。
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
+- Message Type：包类型，根据功能划分；
+- Stream ID：Message通道，推流时请求建立后由服务器返回。
+
 ### 1.1 Protocol Control Messages
 
 #### 1.1.1 Set Chunk Size(1)
