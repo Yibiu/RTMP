@@ -61,45 +61,34 @@ amf_object_property_t* amf_get_prop(amf_object_t *obj, const val_t *name, int nI
 	return (amf_object_property_t *)&AMFProp_Invalid;
 }
 
-char* amf_encode_string(char *output, char *outend, const val_t *str)
+uint8_t* amf_encode_string(uint8_t *ptr, const val_t &str)
 {
-	if ((str->len < 65536 && output + 1 + 2 + str->len > outend) ||
-		output + 1 + 4 + str->len > outend)
-		return NULL;
-
-	if (str->len < 65536)
-	{
-		*output++ = AMF_STRING;
-
-		output = amf_encode_int16(output, outend, str->len);
+	if (str.len < 65536) {
+		*ptr++ = AMF_STRING;
+		ptr = amf_encode_u16(ptr, str.len);
 	}
-	else
-	{
-		*output++ = AMF_LONG_STRING;
-
-		output = amf_encode_int32(output, outend, str->len);
+	else {
+		*ptr++ = AMF_LONG_STRING;
+		ptr = amf_encode_u32(ptr, str.len);
 	}
-	memcpy(output, str->value, str->len);
-	output += str->len;
+	memcpy(ptr, str.value, str.len);
+	ptr += str.len;
 
-	return output;
+	return ptr;
 }
 
-char* amf_encode_number(char *output, char *outend, double dVal)
+uint8_t* amf_encode_number(uint8_t *ptr, uint64_t value)
 {
-	if (output + 1 + 8 > outend)
-		return NULL;
-
-	*output++ = AMF_NUMBER;	/* type: Number */
+	*ptr++ = AMF_NUMBER;	/* type: Number */
 
 #if __FLOAT_WORD_ORDER == __BYTE_ORDER
 #if __BYTE_ORDER == __BIG_ENDIAN
-	memcpy(output, &dVal, 8);
+	memcpy(ptr, &value, 8);
 #elif __BYTE_ORDER == __LITTLE_ENDIAN
 	{
 		unsigned char *ci, *co;
-		ci = (unsigned char *)&dVal;
-		co = (unsigned char *)output;
+		ci = (unsigned char *)&value;
+		co = (unsigned char *)ptr;
 		co[0] = ci[7];
 		co[1] = ci[6];
 		co[2] = ci[5];
@@ -114,8 +103,8 @@ char* amf_encode_number(char *output, char *outend, double dVal)
 #if __BYTE_ORDER == __LITTLE_ENDIAN	/* __FLOAT_WORD_ORER == __BIG_ENDIAN */
 	{
 		unsigned char *ci, *co;
-		ci = (unsigned char *)&dVal;
-		co = (unsigned char *)output;
+		ci = (unsigned char *)&value;
+		co = (unsigned char *)ptr;
 		co[0] = ci[3];
 		co[1] = ci[2];
 		co[2] = ci[1];
@@ -128,8 +117,8 @@ char* amf_encode_number(char *output, char *outend, double dVal)
 #else /* __BYTE_ORDER == __BIG_ENDIAN && __FLOAT_WORD_ORER == __LITTLE_ENDIAN */
 	{
 		unsigned char *ci, *co;
-		ci = (unsigned char *)&dVal;
-		co = (unsigned char *)output;
+		ci = (unsigned char *)&value;
+		co = (unsigned char *)ptr;
 		co[0] = ci[4];
 		co[1] = ci[5];
 		co[2] = ci[6];
@@ -142,88 +131,65 @@ char* amf_encode_number(char *output, char *outend, double dVal)
 #endif
 #endif
 
-	return output + 8;
+	return ptr + 8;
 }
 
-char* amf_encode_int16(char *output, char *outend, short nVal)
+uint8_t* amf_encode_u16(uint8_t *ptr, uint16_t value)
 {
-	if (output + 2 > outend)
-		return NULL;
-
-	output[1] = nVal & 0xff;
-	output[0] = nVal >> 8;
-	return output + 2;
+	ptr[1] = value & 0xff;
+	ptr[0] = value >> 8;
+	return ptr + 2;
 }
 
-char* amf_encode_int24(char *output, char *outend, int nVal)
+uint8_t* amf_encode_u24(uint8_t *ptr, uint32_t value)
 {
-	if (output + 3 > outend)
-		return NULL;
-
-	output[2] = nVal & 0xff;
-	output[1] = nVal >> 8;
-	output[0] = nVal >> 16;
-	return output + 3;
+	ptr[2] = value & 0xff;
+	ptr[1] = value >> 8;
+	ptr[0] = value >> 16;
+	return ptr + 3;
 }
 
-char* amf_encode_int32(char *output, char *outend, int nVal)
+uint8_t* amf_encode_u32(uint8_t *ptr, uint32_t value)
 {
-	if (output + 4 > outend)
-		return NULL;
-
-	output[3] = nVal & 0xff;
-	output[2] = nVal >> 8;
-	output[1] = nVal >> 16;
-	output[0] = nVal >> 24;
-	return output + 4;
+	ptr[3] = value & 0xff;
+	ptr[2] = value >> 8;
+	ptr[1] = value >> 16;
+	ptr[0] = value >> 24;
+	return ptr + 4;
 }
 
-char* amf_encode_boolean(char *output, char *outend, int bVal)
+uint8_t* amf_encode_boolean(uint8_t *ptr, bool value)
 {
-	if (output + 2 > outend)
-		return NULL;
-
-	*output++ = AMF_BOOLEAN;
-
-	*output++ = bVal ? 0x01 : 0x00;
-
-	return output;
+	*ptr++ = AMF_BOOLEAN;
+	*ptr++ = value ? 0x01 : 0x00;
+	return ptr;
 }
 
-char* amf_encode_named_string(char *output, char *outend, const val_t *name, const val_t *value)
+uint8_t* amf_encode_named_string(uint8_t *ptr, const val_t &name, const val_t &value)
 {
-	if (output + 2 + name->len > outend)
-		return NULL;
-	output = amf_encode_int16(output, outend, name->len);
+	ptr = amf_encode_u16(ptr, name.len);
+	memcpy(ptr, name.value, name.len);
+	ptr += name.len;
 
-	memcpy(output, name->value, name->len);
-	output += name->len;
-
-	return amf_encode_string(output, outend, value);
+	return amf_encode_string(ptr, value);
 }
 
-char* amf_encode_named_number(char *output, char *outend, const val_t *name, double dVal)
+uint8_t* amf_encode_named_number(uint8_t *ptr, const val_t &name, uint64_t value)
 {
-	if (output + 2 + name->len > outend)
-		return NULL;
-	output = amf_encode_int16(output, outend, name->len);
+	ptr = amf_encode_u16(ptr, name.len);
+	memcpy(ptr, name.value, name.len);
+	ptr += name.len;
 
-	memcpy(output, name->value, name->len);
-	output += name->len;
-
-	return amf_encode_number(output, outend, dVal);
+	return amf_encode_number(ptr, value);
 }
 
-char* amf_encode_named_boolean(char *output, char *outend, const val_t *name, int bVal)
+uint8_t* amf_encode_named_boolean(uint8_t *ptr, const val_t &name, bool value)
 {
-	if (output + 2 + name->len > outend)
-		return NULL;
-	output = amf_encode_int16(output, outend, name->len);
+	ptr = amf_encode_u16(ptr, name.len);
+	memcpy(ptr, name.value, name.len);
+	ptr += name.len;
 
-	memcpy(output, name->value, name->len);
-	output += name->len;
-
-	return amf_encode_boolean(output, outend, bVal);
+	return amf_encode_boolean(ptr, value);
 }
 
 char *amf_encode(amf_object_t *obj, char *pBuffer, char *pBufEnd)
@@ -251,7 +217,7 @@ char *amf_encode(amf_object_t *obj, char *pBuffer, char *pBufEnd)
 	if (pBuffer + 3 >= pBufEnd)
 		return NULL;			/* no room for the end marker */
 
-	pBuffer = amf_encode_int24(pBuffer, pBufEnd, AMF_OBJECT_END);
+	pBuffer = amf_encode_u24(pBuffer, pBufEnd, AMF_OBJECT_END);
 
 	return pBuffer;
 }
@@ -320,57 +286,69 @@ char *amf_encode_array(amf_object_t *obj, char *pBuffer, char *pBufEnd)
 	return pBuffer;
 }
 
-unsigned short amf_decode_int16(const char *data)
+uint16_t amf_decode_u16(const uint8_t *ptr)
 {
-	unsigned char *c = (unsigned char *)data;
-	unsigned short val;
-	val = (c[0] << 8) | c[1];
-	return val;
+	uint8_t *c = (uint8_t *)ptr;
+	uint16_t value;
+	value = (c[0] << 8) | c[1];
+
+	return value;
 }
 
-unsigned int amf_decode_int24(const char *data)
+uint32_t amf_decode_u24(const uint8_t *ptr)
 {
-	unsigned char *c = (unsigned char *)data;
-	unsigned int val;
-	val = (c[0] << 16) | (c[1] << 8) | c[2];
-	return val;
+	uint8_t *c = (uint8_t *)ptr;
+	uint32_t value;
+	value = (c[0] << 16) | (c[1] << 8) | c[2];
+
+	return value;
 }
 
-unsigned int amf_decode_int32(const char *data)
+uint32_t amf_decode_u32(const uint8_t *ptr)
 {
-	unsigned char *c = (unsigned char *)data;
-	unsigned int val;
-	val = (c[0] << 24) | (c[1] << 16) | (c[2] << 8) | c[3];
-	return val;
+	uint8_t *c = (uint8_t *)ptr;
+	uint32_t value;
+	value = (c[0] << 24) | (c[1] << 16) | (c[2] << 8) | c[3];
+
+	return value;
 }
 
-void amf_decode_string(const char *data, val_t *str)
+uint32_t amf_decode_u32le(const uint8_t *ptr)
 {
-	str->len = amf_decode_int16(data);
-	str->value = (str->len > 0) ? (char *)data + 2 : NULL;
+	uint8_t *c = (uint8_t *)ptr;
+	uint32_t value;
+	value = (c[3] << 24) | (c[2] << 16) | (c[1] << 8) | c[0];
+
+	return value;
 }
 
-void amf_decode_longstring(const char *data, val_t *str)
+void amf_decode_string(const uint8_t *ptr, val_t &str)
 {
-	str->len = amf_decode_int32(data);
-	str->value = (str->len > 0) ? (char *)data + 4 : NULL;
+	str.len = amf_decode_u16(ptr);
+	str.value = (str.len > 0) ? (char *)ptr + 2 : NULL;
 }
 
-int amf_decode_boolean(const char *data)
+void amf_decode_longstring(const uint8_t *ptr, val_t &str)
 {
-	return *data != 0;
+	str.len = amf_decode_u32(ptr);
+	str.value = (str.len > 0) ? (char *)ptr + 4 : NULL;
 }
 
-double amf_decode_number(const char *data)
+bool amf_decode_boolean(const uint8_t *ptr)
 {
-	double dVal;
+	return (*ptr != 0x00);
+}
+
+uint64_t amf_decode_number(const uint8_t *ptr)
+{
+	uint64_t value;
 #if __FLOAT_WORD_ORDER == __BYTE_ORDER
 #if __BYTE_ORDER == __BIG_ENDIAN
-	memcpy(&dVal, data, 8);
+	memcpy(&value, ptr, 8);
 #elif __BYTE_ORDER == __LITTLE_ENDIAN
 	unsigned char *ci, *co;
-	ci = (unsigned char *)data;
-	co = (unsigned char *)&dVal;
+	ci = (unsigned char *)ptr;
+	co = (unsigned char *)&value;
 	co[0] = ci[7];
 	co[1] = ci[6];
 	co[2] = ci[5];
@@ -383,8 +361,8 @@ double amf_decode_number(const char *data)
 #else
 #if __BYTE_ORDER == __LITTLE_ENDIAN	/* __FLOAT_WORD_ORER == __BIG_ENDIAN */
 	unsigned char *ci, *co;
-	ci = (unsigned char *)data;
-	co = (unsigned char *)&dVal;
+	ci = (unsigned char *)ptr;
+	co = (unsigned char *)&value;
 	co[0] = ci[3];
 	co[1] = ci[2];
 	co[2] = ci[1];
@@ -395,8 +373,8 @@ double amf_decode_number(const char *data)
 	co[7] = ci[4];
 #else /* __BYTE_ORDER == __BIG_ENDIAN && __FLOAT_WORD_ORER == __LITTLE_ENDIAN */
 	unsigned char *ci, *co;
-	ci = (unsigned char *)data;
-	co = (unsigned char *)&dVal;
+	ci = (unsigned char *)ptr;
+	co = (unsigned char *)&value;
 	co[0] = ci[4];
 	co[1] = ci[5];
 	co[2] = ci[6];
@@ -407,7 +385,8 @@ double amf_decode_number(const char *data)
 	co[7] = ci[3];
 #endif
 #endif
-	return dVal;
+
+	return value;
 }
 
 int amf_decode(amf_object_t *obj, const char *pBuffer, int nSize, int bDecodeName)

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string>
 #include <vector>
+#include <list>
 #include <map>
 #ifdef WIN32
 #include <winsock2.h>
@@ -30,6 +31,8 @@
 
 #define RTMP_HANDSHAKE_SIG_SIZE			1536
 #define RTMP_VERSION					0x03
+
+#define RTMP_MAX_HEADER_SIZE			18 // Basic Header(3) + Msg Header(11) + Extend Timestamp(4)
 
 
 typedef enum _rtmp_proto
@@ -88,30 +91,15 @@ typedef enum _rtmp_chunk_stream
 } rtmp_chunk_stream_t;
 
 
-typedef struct _rtmp_context
-{
-	rtmp_proto_t protocol;
-	std::string host;
-	uint32_t port;
-	std::string app;
-	std::string stream;
-
-	int socket;
-	int stream_id;
-	uint64_t in_chunk_size;
-	uint64_t out_chunk_size;
-	uint64_t in_bytes;
-	uint64_t out_bytes;
-} rtmp_context_t;
-
-// Message type/Message stream id ----> chunks
+// Message type/Message stream id ----> split to chunks
 typedef struct _rtmp_packet
 {
-	rtmp_msg_type_t msg_type;
-	int msg_stream_id; // = stream_id or ignore(0)
+	rtmp_chunk_type_t chk_type;
+	uint32_t chk_stream_id;
 
-	rtmp_chunk_type_t chk_type; // Only support RTMP_CHUNK_TYPE_LARGE for public
-	rtmp_chunk_stream_t chk_stream_id;
+	rtmp_msg_type_t msg_type;
+	uint32_t msg_stream_id; // = stream_id or ignore(0)
+	uint32_t timedelt; // Only for read packet
 	uint32_t timestamp;
 
 	uint32_t size;
@@ -119,8 +107,62 @@ typedef struct _rtmp_packet
 	uint8_t *data_ptr;
 } rtmp_packet_t;
 
+
+typedef struct _rtmp_link
+{
+	rtmp_proto_t protocol;
+	std::string host;
+	uint32_t port;
+	std::string app;
+	std::string stream;
+} rtmp_link_t;
+
+typedef struct _rtmp_param
+{
+	std::string flashVer;
+	std::string swfUrl;
+	std::string tcUrl;
+	uint64_t encoding; // AMF0 or AMF3
+	std::string auth;
+	//amf_object_t extras;
+} rtmp_param_t;
+
 typedef struct _rtmp_invoke
 {
-
+	uint32_t num;
+	std::string invoke;
 } rtmp_invoke_t;
+
+typedef struct _rtmp_context
+{
+	rtmp_link_t link;
+	rtmp_param_t params;
+
+	int socket;
+	uint32_t stream_id;
+	uint32_t in_chunk_size;
+	uint32_t out_chunk_size;
+	uint64_t in_bytes_count;
+	uint64_t out_bytes_count;
+
+	uint64_t num_invokes;
+	std::list<rtmp_invoke_t> invokes;
+	std::map<uint32_t, rtmp_packet_t> in_channels;
+	std::map<uint32_t, rtmp_packet_t> out_channels;
+} rtmp_context_t;
+
+
+static inline void rtmp_dump_packet(const rtmp_packet_t &packet)
+{
+
+}
+
+static inline void rtmp_init_packet(rtmp_packet_t &packet)
+{
+
+}
+
+static inline void rtmp_copy_packet(rtmp_packet_t &dst_pkt, const rtmp_packet_t &src_pkt)
+{
+}
 

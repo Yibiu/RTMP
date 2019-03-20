@@ -89,29 +89,29 @@ int amf_count_prop(amf_object_t *obj);
 amf_object_property_t* amf_get_prop(amf_object_t *obj, const val_t *name, int index);
 
 // Encode
-char* amf_encode_string(char *output, char *outend, const val_t *str);
-char* amf_encode_number(char *output, char *outend, double dVal);
-char* amf_encode_int16(char *output, char *outend, short nVal);
-char* amf_encode_int24(char *output, char *outend, int nVal);
-char* amf_encode_int32(char *output, char *outend, int nVal);
-char* amf_encode_boolean(char *output, char *outend, int bVal);
-
-char* amf_encode_named_string(char *output, char *outend, const val_t *name, const val_t *value);
-char* amf_encode_named_number(char *output, char *outend, const val_t *name, double dVal);
-char* amf_encode_named_boolean(char *output, char *outend, const val_t *name, int bVal);
+uint8_t* amf_encode_string(uint8_t *ptr, const val_t &str); //
+uint8_t* amf_encode_number(uint8_t *ptr, uint64_t value); //
+uint8_t* amf_encode_u16(uint8_t *ptr, uint16_t value); //
+uint8_t* amf_encode_u24(uint8_t *ptr, uint32_t value); //
+uint8_t* amf_encode_u32(uint8_t *ptr, uint32_t value); //
+uint8_t* amf_encode_boolean(uint8_t *ptr, bool value); //
+uint8_t* amf_encode_named_string(uint8_t *ptr, const val_t &name, const val_t &value); //
+uint8_t* amf_encode_named_number(uint8_t *ptr, const val_t &name, uint64_t value); //
+uint8_t* amf_encode_named_boolean(uint8_t *ptr, const val_t &name, bool value); //
 
 char *amf_encode(amf_object_t *obj, char *pBuffer, char *pBufEnd);
 char *amf_encode_ecma_array(amf_object_t *obj, char *pBuffer, char *pBufEnd);
 char *amf_encode_array(amf_object_t *obj, char *pBuffer, char *pBufEnd);
 
 // Decode
-unsigned short amf_decode_int16(const char *data);
-unsigned int amf_decode_int24(const char *data);
-unsigned int amf_decode_int32(const char *data);
-void amf_decode_string(const char *data, val_t *str);
-void amf_decode_longstring(const char *data, val_t *str);
-int amf_decode_boolean(const char *data);
-double amf_decode_number(const char *data);
+uint16_t amf_decode_u16(const uint8_t *ptr); //
+uint32_t amf_decode_u24(const uint8_t *ptr); //
+uint32_t amf_decode_u32(const uint8_t *ptr); //
+uint32_t amf_decode_u32le(const uint8_t *ptr); // Little endian
+void amf_decode_string(const uint8_t *ptr, val_t &str); //
+void amf_decode_longstring(const uint8_t *ptr, val_t &str); //
+bool amf_decode_boolean(const uint8_t *ptr); //
+uint64_t amf_decode_number(const uint8_t *ptr); //
 
 int amf_decode(amf_object_t *obj, const char *pBuffer, int nSize, int bDecodeName);
 int amf_decode_array(amf_object_t *obj, const char *pBuffer, int nSize, int nArrayLen, int bDecodeName);

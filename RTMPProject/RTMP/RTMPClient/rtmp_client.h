@@ -29,6 +29,7 @@ protected:
 	bool _send(uint32_t size, const uint8_t *data_ptr);
 	bool _recv(uint32_t size, uint8_t *data_ptr);
 	rt_status_t _send_packet(rtmp_packet_t *pkt_ptr, bool queue);
+	rt_status_t _recv_packet(rtmp_packet_t *pkt_ptr);
 
 protected:
 	rtmp_context_t _context;
