@@ -21,19 +21,16 @@
     <ClInclude Include="rtmp_client.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="sys_util.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="common\logger.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="common\rt_defines.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="common\rt_defines_ex.h">
+    <ClInclude Include="common\rt_status.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="common\rt_status.h">
+    <ClInclude Include="sys_bytes.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

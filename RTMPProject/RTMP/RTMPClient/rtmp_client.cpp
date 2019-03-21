@@ -17,6 +17,36 @@ uint32_t g_msg_header_size[4] = { 11, 7, 3, 0 };
 
 CRTMPClient::CRTMPClient()
 {
+	// Context init
+	_context.link.protocol = RTMP_PROTOCOL_RTMP;
+	_context.link.host = "";
+	_context.link.port = RTMP_DEFAULT_PORT;
+	_context.link.app = "";
+	_context.link.stream = "";
+
+	_context.params.flashVer = "";
+	_context.params.swfUrl = "";
+	_context.params.tcUrl = "";
+	_context.params.encoding = 0;
+	_context.params.auth = "";
+
+	_context.socket = -1;
+	_context.playing = false;
+	_context.stream_id = 0;
+	_context.in_chunk_size = RTMP_DEFAULT_CHUNK_SIZE;
+	_context.out_chunk_size = RTMP_DEFAULT_CHUNK_SIZE;
+	_context.server_bw = RTMP_DEFAULT_BW;
+	_context.client_bw = RTMP_DEFAULT_BW;
+	_context.client_bw2 = 2;
+	_context.in_bytes_count = 0;
+	_context.out_bytes_count = 0;
+
+	_context.num_invokes = 0;
+	_context.invokes.clear();
+	_context.in_channels.clear();
+	_context.out_channels.clear();
+
+	_recv_pkt_ptr = NULL;
 }
 
 CRTMPClient::~CRTMPClient()
@@ -37,6 +67,20 @@ rt_status_t CRTMPClient::create(const char *url)
 
 		status = _init_network();
 		CHECK_BREAK(rt_is_success(status));
+
+		_recv_pkt_ptr = new rtmp_packet_t;
+		if (NULL == _recv_pkt_ptr) {
+			status = RT_STATUS_MEMORY_ALLOCATE;
+			break;
+		}
+		rtmp_init_packet(_recv_pkt_ptr);
+		_recv_pkt_ptr->data_ptr = new uint8_t[RTMP_MAX_CHUNK_SIZE];
+		if (NULL == _recv_pkt_ptr->data_ptr) {
+			status = RT_STATUS_MEMORY_ALLOCATE;
+			break;
+		}
+		_recv_pkt_ptr->size = RTMP_MAX_CHUNK_SIZE;
+		_recv_pkt_ptr->valid = 0;
 	} while (false);
 
 	if (!rt_is_success(status)) {
@@ -49,6 +93,15 @@ rt_status_t CRTMPClient::create(const char *url)
 void CRTMPClient::destroy()
 {
 	_deinit_network();
+
+	if (NULL != _recv_pkt_ptr) {
+		if (NULL != _recv_pkt_ptr->data_ptr) {
+			delete[] _recv_pkt_ptr->data_ptr;
+			_recv_pkt_ptr->data_ptr = NULL;
+		}
+		delete _recv_pkt_ptr;
+		_recv_pkt_ptr = NULL;
+	}
 }
 
 rt_status_t CRTMPClient::connect(uint32_t timeout_secs)
@@ -91,7 +144,7 @@ rt_status_t CRTMPClient::connect(uint32_t timeout_secs)
 			status = RT_STATUS_SOCKET_ERR;
 			break;
 		}
-		if (setsockopt(_context.socket, SOL_SOCKET, SO_SNDTIMEO, (char *)&tv, sizeof(tv))) {
+		if (0 != setsockopt(_context.socket, SOL_SOCKET, SO_SNDTIMEO, (char *)&tv, sizeof(tv))) {
 			status = RT_STATUS_SOCKET_ERR;
 			break;
 		}
@@ -106,11 +159,22 @@ rt_status_t CRTMPClient::connect(uint32_t timeout_secs)
 		status = _invoke_connect();
 		CHECK_BREAK(rt_is_success(status));
 
-		// <---->
+		// "xxx" <----> "xxx"
 		while (true)
 		{
-			// TODO
-			// ...
+			status = _recv_packet(_recv_pkt_ptr);
+			if (!rt_is_success(status))
+				break;
+
+			// Ignore these types here
+			if (_recv_pkt_ptr->msg_type == RTMP_MSG_TYPE_AUDIO
+				|| _recv_pkt_ptr->msg_type == RTMP_MSG_TYPE_VIDEO
+				|| _recv_pkt_ptr->msg_type == RTMP_MSG_TYPE_INFO)
+				continue;
+			_handle_packet(_recv_pkt_ptr);
+
+			if (_context.playing)
+				break;
 		}
 	} while (false);
 
@@ -216,6 +280,11 @@ rt_status_t CRTMPClient::_parse_url(const char *url)
 			_context.link.app = rest_str.substr(0, pos);
 			_context.link.stream = rest_str.substr(pos + 1);
 		}
+
+		// Params: tcUrl
+		if (_context.params.tcUrl.empty()) {
+			_context.params.tcUrl = url_str.substr(0, url_str.length() - _context.link.stream.length() - 1);
+		}
 	} while (false);
 
 	return status;
@@ -261,7 +330,7 @@ rt_status_t CRTMPClient::_handshake()
 			break;
 		}
 		// <---- S2(echo to C1)
-		if (_recv(RTMP_HANDSHAKE_SIG_SIZE, S1)) {
+		if (!_recv(RTMP_HANDSHAKE_SIG_SIZE, S1)) {
 			status = RT_STATUS_SOCKET_RECV;
 			break;
 		}
@@ -279,10 +348,10 @@ rt_status_t CRTMPClient::_invoke_connect()
 	rt_status_t status = RT_STATUS_SUCCESS;
 
 	rtmp_packet_t packet;
-	packet.msg_type = RTMP_MSG_TYPE_INVOKE;
-	packet.msg_stream_id = 0; // Because of no stream now
 	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
 	packet.chk_stream_id = RTMP_CHUNK_STREAM_OVER_CONNECTION;
+	packet.msg_type = RTMP_MSG_TYPE_INVOKE;
+	packet.msg_stream_id = 0; // Because of no stream now
 	packet.timestamp = 0;
 
 	//
@@ -336,6 +405,576 @@ rt_status_t CRTMPClient::_invoke_connect()
 	packet.valid = ptr - packet.data_ptr;
 
 	return _send_packet(&packet, true);
+}
+
+rt_status_t CRTMPClient::_handle_chunk_size(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	if (pkt_ptr->valid >= 4) {
+		_context.in_chunk_size = amf_decode_u24(pkt_ptr->data_ptr);
+	}
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_bytes_read_report(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	// Nothing to do...
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_control(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	uint16_t ctrl_type = 0;
+	if (pkt_ptr->valid >= 2) {
+		ctrl_type = amf_decode_u16(pkt_ptr->data_ptr);
+	}
+
+	uint32_t tmp = 0;
+	if (pkt_ptr->valid >= 6) {
+		switch (ctrl_type)
+		{
+		case 0x00: // Stream Begin
+			tmp = amf_decode_u32(pkt_ptr->data_ptr + 2);
+			break;
+		case 0x01: // Stream EOF
+			tmp = amf_decode_u32(pkt_ptr->data_ptr + 2);
+			//if (r->m_pausing == 1)
+			//	r->m_pausing = 2;
+			break;
+		case 0x02: // Stream Dry
+			tmp = amf_decode_u32(pkt_ptr->data_ptr + 2);
+			break;
+		case 0x04: // Stream IsRecorded
+			tmp = amf_decode_u32(pkt_ptr->data_ptr + 2);
+			break;
+		case 0x06: // Server Ping. reply with pong.
+			tmp = amf_decode_u32(pkt_ptr->data_ptr + 2);
+			//RTMP_SendCtrl(r, 0x07, tmp, 0);
+			break;
+			/* FMS 3.5 servers send the following two controls to let the client
+			* know when the server has sent a complete buffer. I.e., when the
+			* server has sent an amount of data equal to m_nBufferMS in duration.
+			* The server meters its output so that data arrives at the client
+			* in realtime and no faster.
+			*
+			* The rtmpdump program tries to set m_nBufferMS as large as
+			* possible, to force the server to send data as fast as possible.
+			* In practice, the server appears to cap this at about 1 hour's
+			* worth of data. After the server has sent a complete buffer, and
+			* sends this BufferEmpty message, it will wait until the play
+			* duration of that buffer has passed before sending a new buffer.
+			* The BufferReady message will be sent when the new buffer starts.
+			* (There is no BufferReady message for the very first buffer;
+			* presumably the Stream Begin message is sufficient for that
+			* purpose.)
+			*
+			* If the network speed is much faster than the data bitrate, then
+			* there may be long delays between the end of one buffer and the
+			* start of the next.
+			*
+			* Since usually the network allows data to be sent at
+			* faster than realtime, and rtmpdump wants to download the data
+			* as fast as possible, we use this RTMP_LF_BUFX hack: when we
+			* get the BufferEmpty message, we send a Pause followed by an
+			* Unpause. This causes the server to send the next buffer immediately
+			* instead of waiting for the full duration to elapse. (That's
+			* also the purpose of the ToggleStream function, which rtmpdump
+			* calls if we get a read timeout.)
+			*
+			* Media player apps don't need this hack since they are just
+			* going to play the data in realtime anyway. It also doesn't work
+			* for live streams since they obviously can only be sent in
+			* realtime. And it's all moot if the network speed is actually
+			* slower than the media bitrate.
+			*/
+		case 0x1F: // Stream BufferEmpty
+			tmp = amf_decode_u32(pkt_ptr->data_ptr + 2);
+			//if (!(r->Link.lFlags & RTMP_LF_BUFX))
+			//	break;
+			//if (!r->m_pausing) {
+			//	r->m_pauseStamp = r->m_mediaChannel < r->m_channelsAllocatedIn ?
+			//		r->m_channelTimestamp[r->m_mediaChannel] : 0;
+			//	RTMP_SendPause(r, TRUE, r->m_pauseStamp);
+			//	r->m_pausing = 1;
+			//}
+			//else if (r->m_pausing == 2) {
+			//	RTMP_SendPause(r, FALSE, r->m_pauseStamp);
+			//	r->m_pausing = 3;
+			//}
+			break;
+		case 0x20: // Stream BufferReady
+			tmp = amf_decode_u32(pkt_ptr->data_ptr + 2);
+			break;
+		default: // Stream xx
+			tmp = amf_decode_u32(pkt_ptr->data_ptr + 2);
+			break;
+		}
+	}
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_server_bw(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	if (pkt_ptr->valid >= 4) {
+		_context.server_bw = amf_decode_u32(pkt_ptr->data_ptr);
+	}
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_client_bw(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	if (pkt_ptr->valid >= 4) {
+		_context.client_bw = amf_decode_u32(pkt_ptr->data_ptr);
+	}
+	_context.client_bw2 = 0;
+	if (pkt_ptr->valid > 4) {
+		_context.client_bw2 = pkt_ptr->data_ptr[4];
+	}
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_audio(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	//if (!r->m_mediaChannel)
+	//	r->m_mediaChannel = packet->m_nChannel;
+	//if (!r->m_pausing)
+	//	r->m_mediaStamp = packet->m_nTimeStamp;
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_video(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	//if (!r->m_mediaChannel)
+	//	r->m_mediaChannel = packet->m_nChannel;
+	//if (!r->m_pausing)
+	//	r->m_mediaStamp = packet->m_nTimeStamp;
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_flex_stream_send(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	// Nothing to do...
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_flex_shared_object(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	// Nothing to do...
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_flex_message(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	// FIXME:
+	//_handle_invoke();
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_info(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	/*
+	// allright we get some info here, so parse it and print it
+	// also keep duration or filesize to make a nice progress bar
+	AMFObject obj;
+	AVal metastring;
+	int ret = FALSE;
+
+	int nRes = AMF_Decode(&obj, body, len, FALSE);
+	if (nRes < 0)
+	{
+		RTMP_Log(RTMP_LOGERROR, "%s, error decoding meta data packet", __FUNCTION__);
+		return FALSE;
+	}
+
+	AMF_Dump(&obj);
+	AMFProp_GetString(AMF_GetProp(&obj, NULL, 0), &metastring);
+
+	if (AVMATCH(&metastring, &av_onMetaData))
+	{
+		AMFObjectProperty prop;
+		// Show metadata
+		RTMP_Log(RTMP_LOGINFO, "Metadata:");
+		DumpMetaData(&obj);
+		if (RTMP_FindFirstMatchingProperty(&obj, &av_duration, &prop))
+		{
+			r->m_fDuration = prop.p_vu.p_number;
+			// RTMP_Log(RTMP_LOGDEBUG, "Set duration: %.2f", m_fDuration);
+		}
+		// Search for audio or video tags
+		if (RTMP_FindPrefixProperty(&obj, &av_video, &prop))
+			r->m_read.dataType |= 1;
+		if (RTMP_FindPrefixProperty(&obj, &av_audio, &prop))
+			r->m_read.dataType |= 4;
+		ret = TRUE;
+	}
+	AMF_Reset(&obj);
+	*/
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_shared_object(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	// Nothing to do...
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	uint64_t txn;
+	int ret = 0, nRes;
+	amf_object_t obj;
+	val_t method;
+
+	/*
+	// Returns 0 for OK/Failed/error, 1 for 'Stop or Complete'
+	uint32_t data_size = pkt_ptr->valid;
+	uint8_t *ptr = pkt_ptr->data_ptr;
+	if (ptr[0] != AMF_STRING) {
+		status = RT_STATUS_INVALID_PARAMETER;
+		return status;
+	}
+
+	nRes = AMF_Decode(&obj, body, nBodySize, FALSE);
+	if (nRes < 0)
+	{
+		RTMP_Log(RTMP_LOGERROR, "%s, error decoding invoke packet", __FUNCTION__);
+		return 0;
+	}
+
+	AMF_Dump(&obj);
+	AMFProp_GetString(AMF_GetProp(&obj, NULL, 0), &method);
+	txn = AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 1));
+	RTMP_Log(RTMP_LOGDEBUG, "%s, server invoking <%s>", __FUNCTION__, method.av_val);
+
+	if (AVMATCH(&method, &av__result))
+	{
+		AVal methodInvoked = { 0 };
+		int i;
+
+		for (i = 0; i<r->m_numCalls; i++) {
+			if (r->m_methodCalls[i].num == (int)txn) {
+				methodInvoked = r->m_methodCalls[i].name;
+				AV_erase(r->m_methodCalls, &r->m_numCalls, i, FALSE);
+				break;
+			}
+		}
+		if (!methodInvoked.av_val) {
+			RTMP_Log(RTMP_LOGDEBUG, "%s, received result id %f without matching request", __FUNCTION__, txn);
+			goto leave;
+		}
+
+		RTMP_Log(RTMP_LOGDEBUG, "%s, received result for method call <%s>", __FUNCTION__, methodInvoked.av_val);
+
+		if (AVMATCH(&methodInvoked, &av_connect))
+		{
+			if (r->Link.token.av_len)
+			{
+				AMFObjectProperty p;
+				if (RTMP_FindFirstMatchingProperty(&obj, &av_secureToken, &p))
+				{
+					DecodeTEA(&r->Link.token, &p.p_vu.p_aval);
+					SendSecureTokenResponse(r, &p.p_vu.p_aval);
+				}
+			}
+			if (r->Link.protocol & RTMP_FEATURE_WRITE)
+			{
+				SendReleaseStream(r);
+				SendFCPublish(r);
+			}
+			else
+			{
+				RTMP_SendServerBW(r);
+				RTMP_SendCtrl(r, 3, 0, 300);
+			}
+			RTMP_SendCreateStream(r);
+
+			if (!(r->Link.protocol & RTMP_FEATURE_WRITE))
+			{
+				// Authenticate on Justin.tv legacy servers before sending FCSubscribe
+				if (r->Link.usherToken.av_len)
+					SendUsherToken(r, &r->Link.usherToken);
+				// Send the FCSubscribe if live stream or if subscribepath is set
+				if (r->Link.subscribepath.av_len)
+					SendFCSubscribe(r, &r->Link.subscribepath);
+				else if (r->Link.lFlags & RTMP_LF_LIVE)
+					SendFCSubscribe(r, &r->Link.playpath);
+			}
+		}
+		else if (AVMATCH(&methodInvoked, &av_createStream))
+		{
+			r->m_stream_id = (int)AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 3));
+
+			if (r->Link.protocol & RTMP_FEATURE_WRITE)
+			{
+				SendPublish(r);
+			}
+			else
+			{
+				if (r->Link.lFlags & RTMP_LF_PLST)
+					SendPlaylist(r);
+				SendPlay(r);
+				RTMP_SendCtrl(r, 3, r->m_stream_id, r->m_nBufferMS);
+			}
+		}
+		else if (AVMATCH(&methodInvoked, &av_play) ||
+			AVMATCH(&methodInvoked, &av_publish))
+		{
+			r->m_bPlaying = TRUE;
+		}
+		free(methodInvoked.av_val);
+	}
+	else if (AVMATCH(&method, &av_onBWDone))
+	{
+		if (!r->m_nBWCheckCounter)
+			SendCheckBW(r);
+	}
+	else if (AVMATCH(&method, &av_onFCSubscribe))
+	{
+		// SendOnFCSubscribe();
+	}
+	else if (AVMATCH(&method, &av_onFCUnsubscribe))
+	{
+		RTMP_Close(r);
+		ret = 1;
+	}
+	else if (AVMATCH(&method, &av_ping))
+	{
+		SendPong(r, txn);
+	}
+	else if (AVMATCH(&method, &av__onbwcheck))
+	{
+		SendCheckBWResult(r, txn);
+	}
+	else if (AVMATCH(&method, &av__onbwdone))
+	{
+		int i;
+		for (i = 0; i < r->m_numCalls; i++)
+			if (AVMATCH(&r->m_methodCalls[i].name, &av__checkbw))
+			{
+				AV_erase(r->m_methodCalls, &r->m_numCalls, i, TRUE);
+				break;
+			}
+	}
+	else if (AVMATCH(&method, &av__error))
+	{
+		RTMP_Log(RTMP_LOGERROR, "rtmp server sent error");
+	}
+	else if (AVMATCH(&method, &av_close))
+	{
+		RTMP_Log(RTMP_LOGERROR, "rtmp server requested close");
+		RTMP_Close(r);
+	}
+	else if (AVMATCH(&method, &av_onStatus))
+	{
+		AMFObject obj2;
+		AVal code, level;
+		AMFProp_GetObject(AMF_GetProp(&obj, NULL, 3), &obj2);
+		AMFProp_GetString(AMF_GetProp(&obj2, &av_code, -1), &code);
+		AMFProp_GetString(AMF_GetProp(&obj2, &av_level, -1), &level);
+
+		RTMP_Log(RTMP_LOGDEBUG, "%s, onStatus: %s", __FUNCTION__, code.av_val);
+		if (AVMATCH(&code, &av_NetStream_Failed)
+			|| AVMATCH(&code, &av_NetStream_Play_Failed)
+			|| AVMATCH(&code, &av_NetStream_Play_StreamNotFound)
+			|| AVMATCH(&code, &av_NetConnection_Connect_InvalidApp))
+		{
+			r->m_stream_id = -1;
+			RTMP_Close(r);
+			RTMP_Log(RTMP_LOGERROR, "Closing connection: %s", code.av_val);
+		}
+
+		else if (AVMATCH(&code, &av_NetStream_Play_Start)
+			|| AVMATCH(&code, &av_NetStream_Play_PublishNotify))
+		{
+			int i;
+			r->m_bPlaying = TRUE;
+			for (i = 0; i < r->m_numCalls; i++)
+			{
+				if (AVMATCH(&r->m_methodCalls[i].name, &av_play))
+				{
+					AV_erase(r->m_methodCalls, &r->m_numCalls, i, TRUE);
+					break;
+				}
+			}
+		}
+
+		else if (AVMATCH(&code, &av_NetStream_Publish_Start))
+		{
+			int i;
+			r->m_bPlaying = TRUE;
+			for (i = 0; i < r->m_numCalls; i++)
+			{
+				if (AVMATCH(&r->m_methodCalls[i].name, &av_publish))
+				{
+					AV_erase(r->m_methodCalls, &r->m_numCalls, i, TRUE);
+					break;
+				}
+			}
+		}
+
+		// Return 1 if this is a Play.Complete or Play.Stop
+		else if (AVMATCH(&code, &av_NetStream_Play_Complete)
+			|| AVMATCH(&code, &av_NetStream_Play_Stop)
+			|| AVMATCH(&code, &av_NetStream_Play_UnpublishNotify))
+		{
+			RTMP_Close(r);
+			ret = 1;
+		}
+
+		else if (AVMATCH(&code, &av_NetStream_Seek_Notify))
+		{
+			r->m_read.flags &= ~RTMP_READ_SEEKING;
+		}
+
+		else if (AVMATCH(&code, &av_NetStream_Pause_Notify))
+		{
+			if (r->m_pausing == 1 || r->m_pausing == 2)
+			{
+				RTMP_SendPause(r, FALSE, r->m_pauseStamp);
+				r->m_pausing = 3;
+			}
+		}
+	}
+	else if (AVMATCH(&method, &av_playlist_ready))
+	{
+		int i;
+		for (i = 0; i < r->m_numCalls; i++)
+		{
+			if (AVMATCH(&r->m_methodCalls[i].name, &av_set_playlist))
+			{
+				AV_erase(r->m_methodCalls, &r->m_numCalls, i, TRUE);
+				break;
+			}
+		}
+	}
+	else
+	{
+
+	}
+leave:
+	AMF_Reset(&obj);
+	return ret;
+	*/
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_flash_video(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	return status;
+}
+
+rt_status_t CRTMPClient::_handle_packet(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	switch (pkt_ptr->msg_type)
+	{
+	//case RTMP_MSG_TYPE_RESERVED00:
+	//	break;
+	case RTMP_MSG_TYPE_CHUNK_SIZE:
+		status = _handle_chunk_size(pkt_ptr);
+		break;
+	//case RTMP_MSG_TYPE_RESERVED02:
+	//	break;
+	case RTMP_MSG_TYPE_BYTES_READ_REPORT:
+		status = _handle_bytes_read_report(pkt_ptr);
+		break;
+	case RTMP_MSG_TYPE_CONTROL:
+		status = _handle_control(pkt_ptr);
+		break;
+	case RTMP_MSG_TYPE_SERVER_BW:
+		status = _handle_server_bw(pkt_ptr);
+		break;
+	case RTMP_MSG_TYPE_CLIENT_BW:
+		status = _handle_client_bw(pkt_ptr);
+		break;
+	//case RTMP_MSG_TYPE_RESERVED07:
+	//	break;
+	case RTMP_MSG_TYPE_AUDIO:
+		status = _handle_audio(pkt_ptr);
+		break;
+	case RTMP_MSG_TYPE_VIDEO:
+		status = _handle_video(pkt_ptr);
+		break;
+	//case RTMP_MSG_TYPE_RESERVED0A:
+	//	break;
+	//case RTMP_MSG_TYPE_RESERVED0B:
+	//	break;
+	//case RTMP_MSG_TYPE_RESERVED0C:
+	//	break;
+	//case RTMP_MSG_TYPE_RESERVED0D:
+	//	break;
+	//case RTMP_MSG_TYPE_RESERVED0E:
+	//	break;
+	case RTMP_MSG_TYPE_FLEX_STREAM_SEND:
+		status = _handle_flex_stream_send(pkt_ptr);
+		break;
+	case RTMP_MSG_TYPE_FLEX_SHARED_OBJECT:
+		status = _handle_flex_shared_object(pkt_ptr);
+		break;
+	case RTMP_MSG_TYPE_FLEX_MESSAGE:
+		status = _handle_flex_message(pkt_ptr);
+		break;
+	case RTMP_MSG_TYPE_INFO:
+		status = _handle_info(pkt_ptr);
+		break;
+	case RTMP_MSG_TYPE_SHARED_OBJECT:
+		status = _handle_shared_object(pkt_ptr);
+		break;
+	case RTMP_MSG_TYPE_INVOKE:
+		status = _handle_invoke(pkt_ptr);
+		break;
+	//case RTMP_MSG_TYPE_RESERVED15:
+	//	break;
+	case RTMP_MSG_TYPE_FLASH_VIDEO:
+		status = _handle_flash_video(pkt_ptr);
+		break;
+	default:
+		status = RT_STATUS_INVALID_PARAMETER;
+		break;
+	}
+
+	return status;
 }
 
 bool CRTMPClient::_send(uint32_t size, const uint8_t *data_ptr)
@@ -416,28 +1055,34 @@ rt_status_t CRTMPClient::_send_packet(rtmp_packet_t *pkt_ptr, bool queue)
 			status = RT_STATUS_INVALID_PARAMETER;
 			break;
 		}
+		if (-1 == _context.socket) {
+			status = RT_STATUS_SOCKET_ERR;
+			break;
+		}
 
 		uint32_t last_timestamp = 0;
 
-		// Optimization with pre-packet when chunk_type != RTMP_CHUNK_TYPE_LARGE
-		if (pkt_ptr->chk_type != RTMP_CHUNK_TYPE_LARGE) {
-			std::map<uint32_t, rtmp_packet_t>::iterator iter;
-			iter = _context.out_channels.find(pkt_ptr->chk_stream_id);
-			if (iter != _context.out_channels.end()) {
-				rtmp_packet_t pre_packet = iter->second;
-
-				if (pkt_ptr->chk_type == RTMP_CHUNK_TYPE_MEDIUM
-					&& pkt_ptr->msg_type == pre_packet.msg_type
-					&& pkt_ptr->valid == pre_packet.valid) {
-					pkt_ptr->chk_type = RTMP_CHUNK_TYPE_SMALL;
-				}
-				if (pkt_ptr->chk_type == RTMP_CHUNK_TYPE_SMALL
-					&& pkt_ptr->timestamp == pre_packet.timestamp) { // FIXME: timestamp is all absolute
-					pkt_ptr->chk_type = RTMP_CHUNK_TYPE_MINIMUM;
-				}
-				
-				last_timestamp = pre_packet.timestamp; // Use delt timestamp
+		// Optimization with pre-packet
+		std::map<uint32_t, rtmp_packet_t>::iterator iter;
+		iter = _context.out_channels.find(pkt_ptr->chk_stream_id);
+		if (iter != _context.out_channels.end()) {
+			rtmp_packet_t pre_packet = iter->second;
+			
+			if (pkt_ptr->chk_type == RTMP_CHUNK_TYPE_LARGE
+				&& pkt_ptr->msg_stream_id == pre_packet.msg_stream_id) {
+				pkt_ptr->chk_type == RTMP_CHUNK_TYPE_MEDIUM;
 			}
+			if (pkt_ptr->chk_type == RTMP_CHUNK_TYPE_MEDIUM
+				&& pkt_ptr->msg_type == pre_packet.msg_type
+				&& pkt_ptr->valid == pre_packet.valid) {
+				pkt_ptr->chk_type = RTMP_CHUNK_TYPE_SMALL;
+			}
+			if (pkt_ptr->chk_type == RTMP_CHUNK_TYPE_SMALL
+				&& pkt_ptr->timestamp == pre_packet.timestamp) { // FIXME: timestamp is all absolute
+				pkt_ptr->chk_type = RTMP_CHUNK_TYPE_MINIMUM;
+			}
+
+			last_timestamp = pre_packet.timestamp; // Use delt timestamp
 		}
 		uint32_t timestamp = pkt_ptr->timestamp - last_timestamp;
 
@@ -574,6 +1219,10 @@ rt_status_t CRTMPClient::_recv_packet(rtmp_packet_t *pkt_ptr)
 			status = RT_STATUS_INVALID_PARAMETER;
 			break;
 		}
+		if (-1 == _context.socket) {
+			status = RT_STATUS_SOCKET_ERR;
+			break;
+		}
 
 		// Read basic header(1/2/3)
 		if (!_recv(1, ptr)) {
@@ -600,7 +1249,7 @@ rt_status_t CRTMPClient::_recv_packet(rtmp_packet_t *pkt_ptr)
 			ptr += 2;
 		}
 
-		// Optimization with pre-packet when chunk_type != RTMP_CHUNK_TYPE_LARGE
+		// Optimization with pre-packet
 		rtmp_chunk_type_t chk_type = pkt_ptr->chk_type;
 		if (pkt_ptr->chk_type != RTMP_CHUNK_TYPE_LARGE) {
 			std::map<uint32_t, rtmp_packet_t>::iterator iter;
@@ -608,65 +1257,81 @@ rt_status_t CRTMPClient::_recv_packet(rtmp_packet_t *pkt_ptr)
 			if (iter != _context.in_channels.end()) {
 				rtmp_packet_t pre_packet = iter->second;
 
-				rtmp_copy_packet(*pkt_ptr, pre_packet);
+				rtmp_copy_packet(pkt_ptr, &pre_packet);
 				pkt_ptr->chk_type = chk_type;
 			}
 		}
-		sadas
 
-		// Read msg header(11/7/3/0)
-		uint32_t size = g_msg_header_size[pkt_ptr->chk_type];
-		if (!_recv(size, ptr)) {
+		// Read msg header(11/7/3/0) and extend timestamp(4/0)
+		uint32_t timestamp = 0;
+		uint32_t msg_size = g_msg_header_size[pkt_ptr->chk_type];
+		if (!_recv(msg_size, ptr)) {
 			status = RT_STATUS_SOCKET_RECV;
 			break;
 		}
 		if (RTMP_CHUNK_TYPE_MINIMUM != pkt_ptr->chk_type) {
-			pkt_ptr->timestamp = amf_decode_u24(ptr);
+			timestamp = amf_decode_u24(ptr);
 			ptr += 3;
 		}
 		if (RTMP_CHUNK_TYPE_MINIMUM != pkt_ptr->chk_type
 			&& RTMP_CHUNK_TYPE_SMALL != pkt_ptr->chk_type) {
-			pkt_ptr->size = amf_decode_u24(ptr);
+			pkt_ptr->valid = amf_decode_u24(ptr);
 			ptr += 3;
 			pkt_ptr->msg_type = (rtmp_msg_type_t)ptr[0];
 			ptr += 1;
 		}
 		if (RTMP_CHUNK_TYPE_LARGE == pkt_ptr->chk_type) {
-			//pkt_ptr->abs_timestamp = true;
 			pkt_ptr->msg_stream_id = amf_decode_u32le(ptr);
 			ptr += 4;
 		}
-
-		// Extend timestamp
-		bool extend_timestamp = 0xFFFFFF == pkt_ptr->timestamp;
-		if (extend_timestamp) {
+		if (0xFFFFFF == timestamp) {
 			if (!_recv(4, ptr)) {
 				status = RT_STATUS_SOCKET_RECV;
 				break;
 			}
-			pkt_ptr->timestamp = amf_decode_u32(ptr);
+			timestamp = amf_decode_u32(ptr);
 			ptr += 4;
 		}
 
-		// Read one chunk
-		uint32_t bytes_to_read = pkt_ptr->size - pkt_ptr->valid;
-		uint32_t chunk_size = _context.in_chunk_size;
-		if (bytes_to_read < chunk_size)
-			chunk_size = bytes_to_read;
-		if (!_recv(chunk_size, pkt_ptr->data_ptr)) {
-			status = RT_STATUS_SOCKET_RECV;
-			break;
-		}
-		pkt_ptr->valid += chunk_size;
-
-		// TODO
-		// Copy reference...
-		//
-
-		if (pkt_ptr->size == pkt_ptr->valid) {
+		// Only large header use absolute timestamp
+		if (pkt_ptr->chk_type == RTMP_CHUNK_TYPE_LARGE) {
+			pkt_ptr->timestamp = timestamp;
 		}
 		else {
+			pkt_ptr->timestamp += timestamp;
 		}
+
+		// Read chunks and composed them to packet
+		uint32_t chunk_size = _context.in_chunk_size;
+		uint32_t reserved = ptr - buffer;
+		uint32_t data_size = pkt_ptr->valid;
+		uint8_t *data_ptr = pkt_ptr->data_ptr;
+		while (data_size > 0)
+		{
+			if (data_size < chunk_size)
+				chunk_size = data_size;
+
+			if (!_recv(chunk_size, data_ptr)) {
+				status = RT_STATUS_SOCKET_RECV;
+				break;
+			}
+			data_ptr += chunk_size;
+			data_size -= chunk_size;
+
+			// New header without msg header for splitted chunks
+			// Skip following chunk header
+			if (data_size > 0) {
+				uint32_t reserved1 = reserved - g_msg_header_size[pkt_ptr->chk_type];
+				if (!_recv(reserved1, data_ptr)) {
+					status = RT_STATUS_SOCKET_RECV;
+					break;
+				}
+			}
+		}
+		CHECK_BREAK(rt_is_success(status));
+
+		// Update this packet to pre-packet
+		_context.in_channels[pkt_ptr->chk_stream_id] = *pkt_ptr;
 	} while (false);
 
 	return status;

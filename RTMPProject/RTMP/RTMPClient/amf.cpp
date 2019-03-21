@@ -1,11 +1,12 @@
 #include "amf.h"
 
 
-static const amf_object_property_t AMFProp_Invalid = { { 0, 0 }, AMF_INVALID };
-static const amf_object_t AMFObj_Invalid = { 0, 0 };
-static const val_t AV_empty = { 0, 0 };
+static const amf_object_property_t AMFProp_Invalid = { { 0, NULL }, AMF_INVALID };
+static const amf_object_t AMFObj_Invalid = { 0, NULL };
+static const val_t AV_empty = { 0, NULL };
 
 // AMF
+/*
 void amf_dump(amf_object_t *obj)
 {
 	int n;
@@ -28,6 +29,7 @@ void amf_reset(amf_object_t *obj)
 	obj->props = NULL;
 	obj->num = 0;
 }
+*/
 
 void amf_add_prop(amf_object_t *obj, const amf_object_property_t *prop)
 {
@@ -36,6 +38,7 @@ void amf_add_prop(amf_object_t *obj, const amf_object_property_t *prop)
 	memcpy(&obj->props[obj->num++], prop, sizeof(amf_object_property_t));
 }
 
+/*
 int amf_count_prop(amf_object_t *obj)
 {
 	return obj->num;
@@ -60,6 +63,7 @@ amf_object_property_t* amf_get_prop(amf_object_t *obj, const val_t *name, int nI
 
 	return (amf_object_property_t *)&AMFProp_Invalid;
 }
+*/
 
 uint8_t* amf_encode_string(uint8_t *ptr, const val_t &str)
 {
@@ -79,7 +83,7 @@ uint8_t* amf_encode_string(uint8_t *ptr, const val_t &str)
 
 uint8_t* amf_encode_number(uint8_t *ptr, uint64_t value)
 {
-	*ptr++ = AMF_NUMBER;	/* type: Number */
+	*ptr++ = AMF_NUMBER;	// type: Number
 
 #if __FLOAT_WORD_ORDER == __BYTE_ORDER
 #if __BYTE_ORDER == __BIG_ENDIAN
@@ -100,7 +104,7 @@ uint8_t* amf_encode_number(uint8_t *ptr, uint64_t value)
 	}
 #endif
 #else
-#if __BYTE_ORDER == __LITTLE_ENDIAN	/* __FLOAT_WORD_ORER == __BIG_ENDIAN */
+#if __BYTE_ORDER == __LITTLE_ENDIAN	// __FLOAT_WORD_ORER == __BIG_ENDIAN
 	{
 		unsigned char *ci, *co;
 		ci = (unsigned char *)&value;
@@ -114,7 +118,7 @@ uint8_t* amf_encode_number(uint8_t *ptr, uint64_t value)
 		co[6] = ci[5];
 		co[7] = ci[4];
 	}
-#else /* __BYTE_ORDER == __BIG_ENDIAN && __FLOAT_WORD_ORER == __LITTLE_ENDIAN */
+#else // __BYTE_ORDER == __BIG_ENDIAN && __FLOAT_WORD_ORER == __LITTLE_ENDIAN
 	{
 		unsigned char *ci, *co;
 		ci = (unsigned char *)&value;
@@ -192,6 +196,7 @@ uint8_t* amf_encode_named_boolean(uint8_t *ptr, const val_t &name, bool value)
 	return amf_encode_boolean(ptr, value);
 }
 
+/*
 char *amf_encode(amf_object_t *obj, char *pBuffer, char *pBufEnd)
 {
 	int i;
@@ -215,7 +220,7 @@ char *amf_encode(amf_object_t *obj, char *pBuffer, char *pBufEnd)
 	}
 
 	if (pBuffer + 3 >= pBufEnd)
-		return NULL;			/* no room for the end marker */
+		return NULL;			// no room for the end marker
 
 	pBuffer = amf_encode_u24(pBuffer, pBufEnd, AMF_OBJECT_END);
 
@@ -247,7 +252,7 @@ char *amf_encode_ecma_array(amf_object_t *obj, char *pBuffer, char *pBufEnd)
 	}
 
 	if (pBuffer + 3 >= pBufEnd)
-		return NULL;			/* no room for the end marker */
+		return NULL;			// no room for the end marker
 
 	pBuffer = amf_encode_int24(pBuffer, pBufEnd, AMF_OBJECT_END);
 
@@ -279,12 +284,13 @@ char *amf_encode_array(amf_object_t *obj, char *pBuffer, char *pBufEnd)
 	}
 
 	//if (pBuffer + 3 >= pBufEnd)
-	//  return NULL;			/* no room for the end marker */
+	//  return NULL;			// no room for the end marker
 
 	//pBuffer = AMF_EncodeInt24(pBuffer, pBufEnd, AMF_OBJECT_END);
 
 	return pBuffer;
 }
+*/
 
 uint16_t amf_decode_u16(const uint8_t *ptr)
 {
@@ -359,7 +365,7 @@ uint64_t amf_decode_number(const uint8_t *ptr)
 	co[7] = ci[0];
 #endif
 #else
-#if __BYTE_ORDER == __LITTLE_ENDIAN	/* __FLOAT_WORD_ORER == __BIG_ENDIAN */
+#if __BYTE_ORDER == __LITTLE_ENDIAN	// __FLOAT_WORD_ORER == __BIG_ENDIAN
 	unsigned char *ci, *co;
 	ci = (unsigned char *)ptr;
 	co = (unsigned char *)&value;
@@ -371,7 +377,7 @@ uint64_t amf_decode_number(const uint8_t *ptr)
 	co[5] = ci[6];
 	co[6] = ci[5];
 	co[7] = ci[4];
-#else /* __BYTE_ORDER == __BIG_ENDIAN && __FLOAT_WORD_ORER == __LITTLE_ENDIAN */
+#else // __BYTE_ORDER == __BIG_ENDIAN && __FLOAT_WORD_ORER == __LITTLE_ENDIAN
 	unsigned char *ci, *co;
 	ci = (unsigned char *)ptr;
 	co = (unsigned char *)&value;
@@ -389,95 +395,80 @@ uint64_t amf_decode_number(const uint8_t *ptr)
 	return value;
 }
 
-int amf_decode(amf_object_t *obj, const char *pBuffer, int nSize, int bDecodeName)
+int amf_decode(amf_object_t *obj, const uint8_t *ptr, uint32_t size, bool decode_name)
 {
-	int nOriginalSize = nSize;
-	int bError = 0;		/* if there is an error while decoding - try to at least find the end mark AMF_OBJECT_END */
+	bool error = false;
 
+	uint32_t orig_size = size;
 	obj->num = 0;
 	obj->props = NULL;
-	while (nSize > 0)
+	while (size > 0)
 	{
 		amf_object_property_t prop;
-		int nRes;
 
-		if (nSize >= 3 && amf_decode_int24(pBuffer) == AMF_OBJECT_END)
-		{
-			nSize -= 3;
-			bError = 0;
+		if (size >= 3 && amf_decode_u24(ptr) == AMF_OBJECT_END) {
+			size -= 3;
+			error = false;
 			break;
 		}
 
-		if (bError)
-		{
-			//RTMP_Log(RTMP_LOGERROR, "DECODING ERROR, IGNORING BYTES UNTIL NEXT KNOWN PATTERN!");
-			nSize--;
-			pBuffer++;
-			continue;
-		}
-
-		nRes = amfprop_decode(&prop, pBuffer, nSize, bDecodeName);
-		if (nRes == -1)
-		{
-			bError = 1;
+		int ret = amfprop_decode(&prop, ptr, size, decode_name);
+		if (-1 == ret) {
+			error = true;
 			break;
 		}
-		else
-		{
-			nSize -= nRes;
-			if (nSize < 0)
-			{
-				bError = 1;
+		else {
+			size -= ret;
+			if (size < 0) {
+				error = true;
 				break;
 			}
-			pBuffer += nRes;
+			ptr += ret;
 			amf_add_prop(obj, &prop);
 		}
 	}
 
-	if (bError)
+	if (error)
 		return -1;
 
-	return nOriginalSize - nSize;
+	return orig_size - size;
 }
 
-int amf_decode_array(amf_object_t *obj, const char *pBuffer, int nSize, int nArrayLen, int bDecodeName)
+int amf_decode_array(amf_object_t *obj, const uint8_t *ptr, uint32_t size, uint32_t array_len, bool decode_name)
 {
-	int nOriginalSize = nSize;
-	int bError = 0;
+	bool error = false;
 
+	int orig_size = size;
 	obj->num = 0;
 	obj->props = NULL;
-	while (nArrayLen > 0)
+	while (array_len > 0)
 	{
 		amf_object_property_t prop;
-		int nRes;
-		nArrayLen--;
 
-		if (nSize <= 0)
-		{
-			bError = 1;
+		array_len--;
+		if (size <= 0) {
+			error = true;
 			break;
 		}
-		nRes = amfprop_decode(&prop, pBuffer, nSize, bDecodeName);
-		if (nRes == -1)
-		{
-			bError = 1;
+		int ret = amfprop_decode(&prop, ptr, size, decode_name);
+		if (ret == -1) {
+			error = 1;
 			break;
 		}
-		else
-		{
-			nSize -= nRes;
-			pBuffer += nRes;
+		else {
+			size -= ret;
+			ptr += ret;
 			amf_add_prop(obj, &prop);
 		}
 	}
-	if (bError)
+
+	if (error)
 		return -1;
 
-	return nOriginalSize - nSize;
+	return orig_size - size;
 }
 
+/*
 amf_data_type_t amfprop_get_type(amf_object_property_t *prop)
 {
 	return prop->type;
@@ -594,76 +585,62 @@ char *amfprop_encode(amf_object_property_t *prop, char *pBuffer, char *pBufEnd)
 
 	return pBuffer;
 }
+*/
 
-int amfprop_decode(amf_object_property_t *prop, const char *pBuffer, int nSize, int bDecodeName)
+int amfprop_decode(amf_object_property_t *prop, const uint8_t *ptr, uint32_t size, bool decode_name)
 {
-	int nOriginalSize = nSize;
-	int nRes;
+	uint32_t orig_size = size;
 
 	prop->name.len = 0;
 	prop->name.value = NULL;
-
-	if (nSize == 0 || !pBuffer)
-	{
+	if (size == 0 || NULL == ptr)
 		return -1;
-	}
-
-	if (bDecodeName && nSize < 4)
-	{				/* at least name (length + at least 1 byte) and 1 byte of data */
+	if (decode_name && size < 4)
 		return -1;
-	}
 
-	if (bDecodeName)
-	{
-		unsigned short nNameSize = amf_decode_int16(pBuffer);
-		if (nNameSize > nSize - 2)
-		{
+	if (decode_name) {
+		uint16_t name_size = amf_decode_u16(ptr);
+		if (name_size > size - 2)
 			return -1;
-		}
 
-		amf_decode_string(pBuffer, &prop->name);
-		nSize -= 2 + nNameSize;
-		pBuffer += 2 + nNameSize;
+		amf_decode_string(ptr, prop->name);
+		size -= 2 + name_size;
+		ptr += 2 + name_size;
 	}
-
-	if (nSize == 0)
-	{
+	if (size == 0)
 		return -1;
-	}
 
-	nSize--;
-
-	prop->type = (amf_data_type_t)*pBuffer++;
+	size--;
+	prop->type = (amf_data_type_t)*ptr++;
 	switch (prop->type)
 	{
 	case AMF_NUMBER:
-		if (nSize < 8)
+		if (size < 8)
 			return -1;
-		prop->vu.number = amf_decode_number(pBuffer);
-		nSize -= 8;
+		prop->vu.number = amf_decode_number(ptr);
+		size -= 8;
 		break;
 	case AMF_BOOLEAN:
-		if (nSize < 1)
+		if (size < 1)
 			return -1;
-		prop->vu.number = (double)amf_decode_boolean(pBuffer);
-		nSize--;
+		prop->vu.number = (double)amf_decode_boolean(ptr);
+		size--;
 		break;
 	case AMF_STRING:
 	{
-		unsigned short nStringSize = amf_decode_int16(pBuffer);
-
-		if (nSize < (long)nStringSize + 2)
+		uint16_t string_size = amf_decode_u16(ptr);
+		if (size < (long)string_size + 2)
 			return -1;
-		amf_decode_string(pBuffer, &prop->vu.value);
-		nSize -= (2 + nStringSize);
+		amf_decode_string(ptr, prop->vu.value);
+		size -= (2 + string_size);
 		break;
 	}
 	case AMF_OBJECT:
 	{
-		int nRes = amf_decode(&prop->vu.object, pBuffer, nSize, 1);
-		if (nRes == -1)
+		int ret = amf_decode(&prop->vu.object, ptr, size, 1);
+		if (ret == -1)
 			return -1;
-		nSize -= nRes;
+		size -= ret;
 		break;
 	}
 	case AMF_MOVIECLIP:
@@ -683,13 +660,13 @@ int amfprop_decode(amf_object_property_t *prop, const char *pBuffer, int nSize, 
 	}
 	case AMF_ECMA_ARRAY:
 	{
-		nSize -= 4;
+		size -= 4;
 
-		/* next comes the rest, mixed array has a final 0x000009 mark and names, so its an object */
-		nRes = amf_decode(&prop->vu.object, pBuffer + 4, nSize, 1);
-		if (nRes == -1)
+		// next comes the rest, mixed array has a final 0x000009 mark and names, so its an object
+		int ret = amf_decode(&prop->vu.object, ptr + 4, size, 1);
+		if (ret == -1)
 			return -1;
-		nSize -= nRes;
+		size -= ret;
 		break;
 	}
 	case AMF_OBJECT_END:
@@ -699,34 +676,32 @@ int amfprop_decode(amf_object_property_t *prop, const char *pBuffer, int nSize, 
 	}
 	case AMF_STRICT_ARRAY:
 	{
-		unsigned int nArrayLen = amf_decode_int32(pBuffer);
-		nSize -= 4;
-
-		nRes = amf_decode_array(&prop->vu.object, pBuffer + 4, nSize, nArrayLen, 0);
-		if (nRes == -1)
+		uint32_t nArrayLen = amf_decode_u32(ptr);
+		size -= 4;
+		int ret = amf_decode_array(&prop->vu.object, ptr + 4, size, nArrayLen, 0);
+		if (ret == -1)
 			return -1;
-		nSize -= nRes;
+		size -= ret;
 		break;
 	}
 	case AMF_DATE:
 	{
-		if (nSize < 10)
+		if (size < 10)
 			return -1;
 
-		prop->vu.number = amf_decode_number(pBuffer);
-		prop->UTC_offset = amf_decode_int16(pBuffer + 8);
-
-		nSize -= 10;
+		prop->vu.number = amf_decode_number(ptr);
+		prop->UTC_offset = amf_decode_u16(ptr + 8);
+		size -= 10;
 		break;
 	}
 	case AMF_LONG_STRING:
 	case AMF_XML_DOC:
 	{
-		unsigned int nStringSize = amf_decode_int32(pBuffer);
-		if (nSize < (long)nStringSize + 4)
+		uint32_t nStringSize = amf_decode_u32(ptr);
+		if (size < (long)nStringSize + 4)
 			return -1;
-		amf_decode_longstring(pBuffer, &prop->vu.value);
-		nSize -= (4 + nStringSize);
+		amf_decode_longstring(ptr, prop->vu.value);
+		size -= (4 + nStringSize);
 		if (prop->type == AMF_LONG_STRING)
 			prop->type = AMF_STRING;
 		break;
@@ -743,10 +718,10 @@ int amfprop_decode(amf_object_property_t *prop, const char *pBuffer, int nSize, 
 	}
 	case AMF_AVMPLUS:
 	{
-		int nRes = amf3_decode(&prop->vu.object, pBuffer, nSize, 1);
-		if (nRes == -1)
+		int ret = amf3_decode(&prop->vu.object, ptr, size, 1);
+		if (ret == -1)
 			return -1;
-		nSize -= nRes;
+		size -= ret;
 		prop->type = AMF_OBJECT;
 		break;
 	}
@@ -754,9 +729,10 @@ int amfprop_decode(amf_object_property_t *prop, const char *pBuffer, int nSize, 
 		return -1;
 	}
 
-	return nOriginalSize - nSize;
+	return orig_size - size;
 }
 
+/*
 void amfprop_Dump(amf_object_property_t *prop)
 {
 	char strRes[256];
@@ -839,19 +815,21 @@ void amfprop_Reset(amf_object_property_t *prop)
 	}
 	prop->type = AMF_INVALID;
 }
+*/
 
 // AMF3
+/*
 int amf3_read_integer(const char *data, int32_t *valp)
 {
 	int i = 0;
 	int32_t val = 0;
 
 	while (i <= 2)
-	{				/* handle first 3 bytes */
+	{				// handle first 3 bytes
 		if (data[i] & 0x80)
-		{			/* byte used */
-			val <<= 7;		/* shift up */
-			val |= (data[i] & 0x7f);	/* add bits */
+		{			// byte used
+			val <<= 7;		// shift up
+			val |= (data[i] & 0x7f);	// add bits
 			i++;
 		}
 		else
@@ -861,16 +839,16 @@ int amf3_read_integer(const char *data, int32_t *valp)
 	}
 
 	if (i > 2)
-	{				/* use 4th byte, all 8bits */
+	{				// use 4th byte, all 8bits
 		val <<= 8;
 		val |= data[3];
 
-		/* range check */
+		// range check
 		if (val > AMF3_INTEGER_MAX)
 			val -= (1 << 29);
 	}
 	else
-	{				/* use 7bits of last unparsed byte (0xxxxxxx) */
+	{				// use 7bits of last unparsed byte (0xxxxxxx)
 		val <<= 7;
 		val |= data[i];
 	}
@@ -890,7 +868,7 @@ int amf3_read_string(const char *data, val_t *str)
 	data += len;
 
 	if ((ref & 0x1) == 0)
-	{				/* reference: 0xxx */
+	{				// reference: 0xxx
 		uint32_t refIndex = (ref >> 1);
 		str->value = NULL;
 		str->len = 0;
@@ -907,9 +885,11 @@ int amf3_read_string(const char *data, val_t *str)
 	}
 	return len;
 }
+*/
 
-int amf3_decode(amf_object_t *obj, const char *pBuffer, int nSize, int bAMFData)
+int amf3_decode(amf_object_t *obj, const uint8_t *ptr, uint32_t size, bool amf)
 {
+	/*
 	int nOriginalSize = nSize;
 	int32_t ref;
 	int len;
@@ -930,12 +910,12 @@ int amf3_decode(amf_object_t *obj, const char *pBuffer, int nSize, int bAMFData)
 	nSize -= len;
 
 	if ((ref & 1) == 0)
-	{				/* object reference, 0xxx */
+	{				// object reference, 0xxx
 		uint32_t objectIndex = (ref >> 1);
 
 		//RTMP_Log(RTMP_LOGDEBUG, "Object reference, index: %d", objectIndex);
 	}
-	else				/* object instance */
+	else				// object instance
 	{
 		int32_t classRef = (ref >> 1);
 
@@ -944,7 +924,7 @@ int amf3_decode(amf_object_t *obj, const char *pBuffer, int nSize, int bAMFData)
 		amf_object_property_t prop;
 
 		if ((classRef & 0x1) == 0)
-		{			/* class reference */
+		{			// class reference
 			uint32_t classIndex = (classRef >> 1);
 			//RTMP_Log(RTMP_LOGDEBUG, "Class reference: %d", classIndex);
 		}
@@ -958,13 +938,13 @@ int amf3_decode(amf_object_t *obj, const char *pBuffer, int nSize, int bAMFData)
 
 			cdnum = classExtRef >> 2;
 
-			/* class name */
+			// class name
 
 			len = amf3_read_string(pBuffer, &cd.cd_name);
 			nSize -= len;
 			pBuffer += len;
 
-			/*std::string str = className; */
+			//std::string str = className;
 
 			//RTMP_Log(RTMP_LOGDEBUG,
 			//	"Class name: %s, externalizable: %d, dynamic: %d, classMembers: %d",
@@ -988,7 +968,7 @@ int amf3_decode(amf_object_t *obj, const char *pBuffer, int nSize, int bAMFData)
 			}
 		}
 
-		/* add as referencable object */
+		// add as referencable object
 
 		if (cd.cd_externalizable)
 		{
@@ -1013,7 +993,7 @@ int amf3_decode(amf_object_t *obj, const char *pBuffer, int nSize, int bAMFData)
 		else
 		{
 			int nRes, i;
-			for (i = 0; i < cd.cd_num; i++)	/* non-dynamic */
+			for (i = 0; i < cd.cd_num; i++)	// non-dynamic
 			{
 				if (nSize <= 0)
 					goto invalid;
@@ -1049,8 +1029,12 @@ int amf3_decode(amf_object_t *obj, const char *pBuffer, int nSize, int bAMFData)
 		//RTMP_Log(RTMP_LOGDEBUG, "class object!");
 	}
 	return nOriginalSize - nSize;
+	*/
+
+	return 0;
 }
 
+/*
 void amf3cd_add_prop(amf3_class_def_t *cd, val_t *prop)
 {
 	if (!(cd->cd_num & 0x0f))
@@ -1078,7 +1062,7 @@ int amf3prop_decode(amf_object_property_t *prop, const char *pBuffer, int nSize,
 		return -1;
 	}
 
-	/* decode name */
+	// decode name
 	if (bDecodeName)
 	{
 		val_t name;
@@ -1094,7 +1078,7 @@ int amf3prop_decode(amf_object_property_t *prop, const char *pBuffer, int nSize,
 		pBuffer += nRes;
 	}
 
-	/* decode */
+	// decode 
 	type = (amf3_data_type_t)*pBuffer++;
 	nSize--;
 
@@ -1146,7 +1130,7 @@ int amf3prop_decode(amf_object_property_t *prop, const char *pBuffer, int nSize,
 		pBuffer += len;
 
 		if ((res & 0x1) == 0)
-		{			/* reference */
+		{			// reference
 			uint32_t nIndex = (res >> 1);
 		}
 		else
@@ -1179,5 +1163,5 @@ int amf3prop_decode(amf_object_property_t *prop, const char *pBuffer, int nSize,
 
 	return nOriginalSize - nSize;
 }
-
+*/
 

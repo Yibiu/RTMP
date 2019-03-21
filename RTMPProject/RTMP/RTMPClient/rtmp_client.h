@@ -26,6 +26,22 @@ protected:
 	rt_status_t _handshake();
 	rt_status_t _invoke_connect();
 
+	rt_status_t _handle_chunk_size(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_bytes_read_report(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_control(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_server_bw(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_client_bw(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_audio(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_video(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_flex_stream_send(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_flex_shared_object(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_flex_message(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_info(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_shared_object(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_invoke(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_flash_video(rtmp_packet_t *pkt_ptr);
+	rt_status_t _handle_packet(rtmp_packet_t *pkt_ptr);
+
 	bool _send(uint32_t size, const uint8_t *data_ptr);
 	bool _recv(uint32_t size, uint8_t *data_ptr);
 	rt_status_t _send_packet(rtmp_packet_t *pkt_ptr, bool queue);
@@ -33,6 +49,8 @@ protected:
 
 protected:
 	rtmp_context_t _context;
+
+	rtmp_packet_t *_recv_pkt_ptr;
 };
 
 

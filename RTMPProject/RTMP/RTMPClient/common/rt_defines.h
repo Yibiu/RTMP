@@ -1,4 +1,5 @@
 #pragma once
+#pragma warning(disable: 4996)
 #include <stdint.h>
 #include <stdlib.h>
 #include <string>
@@ -28,11 +29,15 @@
 #define CHECK_STATUS(x, status, value) if (!x) {status = value; break;}
 
 #define RTMP_DEFAULT_PORT				1935
+#define RTMP_DEFAULT_CHUNK_SIZE			128
+#define RTMP_DEFAULT_BW					2500000
 
 #define RTMP_HANDSHAKE_SIG_SIZE			1536
 #define RTMP_VERSION					0x03
 
 #define RTMP_MAX_HEADER_SIZE			18 // Basic Header(3) + Msg Header(11) + Extend Timestamp(4)
+
+#define RTMP_MAX_CHUNK_SIZE				(2 * 1024 * 1024)				
 
 
 typedef enum _rtmp_proto
@@ -99,7 +104,6 @@ typedef struct _rtmp_packet
 
 	rtmp_msg_type_t msg_type;
 	uint32_t msg_stream_id; // = stream_id or ignore(0)
-	uint32_t timedelt; // Only for read packet
 	uint32_t timestamp;
 
 	uint32_t size;
@@ -139,9 +143,13 @@ typedef struct _rtmp_context
 	rtmp_param_t params;
 
 	int socket;
+	bool playing;
 	uint32_t stream_id;
 	uint32_t in_chunk_size;
 	uint32_t out_chunk_size;
+	uint32_t server_bw;
+	uint32_t client_bw;
+	uint32_t client_bw2;
 	uint64_t in_bytes_count;
 	uint64_t out_bytes_count;
 
@@ -152,17 +160,43 @@ typedef struct _rtmp_context
 } rtmp_context_t;
 
 
-static inline void rtmp_dump_packet(const rtmp_packet_t &packet)
+static inline void rtmp_dump_packet(const rtmp_packet_t *pkt_ptr)
 {
 
 }
 
-static inline void rtmp_init_packet(rtmp_packet_t &packet)
+static inline void rtmp_init_packet(rtmp_packet_t *pkt_ptr)
 {
-
+	pkt_ptr->chk_type = RTMP_CHUNK_TYPE_LARGE;
+	pkt_ptr->chk_stream_id = 0;
+	pkt_ptr->msg_type = RTMP_MSG_TYPE_RESERVED00;
+	pkt_ptr->msg_stream_id = 0;
+	pkt_ptr->timestamp = 0;
+	pkt_ptr->size = 0;
+	pkt_ptr->valid = 0;
+	pkt_ptr->data_ptr = NULL;
 }
 
-static inline void rtmp_copy_packet(rtmp_packet_t &dst_pkt, const rtmp_packet_t &src_pkt)
+static inline void rtmp_copy_packet(rtmp_packet_t *dst_pkt_ptr, const rtmp_packet_t *src_pkt_ptr)
 {
+	dst_pkt_ptr->chk_type = src_pkt_ptr->chk_type;
+	dst_pkt_ptr->chk_stream_id = src_pkt_ptr->chk_stream_id;
+	dst_pkt_ptr->msg_type = src_pkt_ptr->msg_type;
+	dst_pkt_ptr->msg_stream_id = src_pkt_ptr->msg_stream_id;
+	dst_pkt_ptr->timestamp = src_pkt_ptr->timestamp;
+	// No copy folowing...
+	//dst_pkt_ptr->size = src_pkt_ptr->size;
+	//dst_pkt_ptr->valid = src_pkt_ptr->valid;
+	//dst_pkt_ptr->data_ptr = src_pkt_ptr->data_ptr;
+}
+
+static inline uint32_t gettime()
+{
+#ifdef _WIN32
+	return timeGetTime();
+#else
+	tms t;
+	return (times(&t) * 1000 / sysconf(_SC_CLK_TCK));
+#endif
 }
 
