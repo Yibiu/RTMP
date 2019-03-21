@@ -8,6 +8,7 @@
 
 //////////////////////////////////////////////////////////////////
 // Common AMF/AMF3
+// AMF is Big-Endian!!!
 
 #define AMF3_INTEGER_MAX	268435455
 #define AMF3_INTEGER_MIN	-268435456
@@ -66,7 +67,7 @@ typedef struct _val
 struct _amf_object_property;
 typedef struct _amf_object
 {
-	int num;
+	uint32_t num;
 	_amf_object_property *props;
 } amf_object_t;
 
@@ -75,70 +76,50 @@ typedef struct _amf_object_property
 	val_t name;
 	amf_data_type_t type;
 	union {
-		double number;
+		uint64_t number;
 		val_t value;
 		amf_object_t object;
 	} vu;
-	int16_t UTC_offset;
+	uint16_t UTC_offset;
 } amf_object_property_t;
 
-//void amf_dump(amf_object_t *obj);
+// Encode
+uint8_t* amf_encode_u16(uint8_t *ptr, uint16_t value);
+uint8_t* amf_encode_u24(uint8_t *ptr, uint32_t value);
+uint8_t* amf_encode_u32(uint8_t *ptr, uint32_t value);
+uint8_t* amf_encode_boolean(uint8_t *ptr, bool value);
+uint8_t* amf_encode_string(uint8_t *ptr, const val_t &str);
+uint8_t* amf_encode_number(uint8_t *ptr, uint64_t value);
+uint8_t* amf_encode_named_string(uint8_t *ptr, const val_t &name, const val_t &value);
+uint8_t* amf_encode_named_number(uint8_t *ptr, const val_t &name, uint64_t value);
+uint8_t* amf_encode_named_boolean(uint8_t *ptr, const val_t &name, bool value);
+//char *amf_encode(amf_object_t *obj, char *pBuffer, char *pBufEnd);
+//char *amf_encode_ecma_array(amf_object_t *obj, char *pBuffer, char *pBufEnd);
+//char *amf_encode_array(amf_object_t *obj, char *pBuffer, char *pBufEnd);
+
+// Decode
+uint16_t amf_decode_u16(const uint8_t *ptr);
+uint32_t amf_decode_u24(const uint8_t *ptr);
+uint32_t amf_decode_u32(const uint8_t *ptr);
+uint32_t amf_decode_u32le(const uint8_t *ptr); // Little endian
+bool amf_decode_boolean(const uint8_t *ptr);
+void amf_decode_string(const uint8_t *ptr, val_t &str);
+void amf_decode_longstring(const uint8_t *ptr, val_t &str);
+uint64_t amf_decode_number(const uint8_t *ptr);
+//int amf_decode(amf_object_t *obj, const uint8_t *ptr, uint32_t size, bool decode_name); // Decode to object, error: -1
+//int amf_decode_array(amf_object_t *obj, const uint8_t *ptr, uint32_t size, uint32_t array_len, bool decode_name); // Decode array, error: -1
+
 //void amf_reset(amf_object_t *obj);
-void amf_add_prop(amf_object_t *obj, const amf_object_property_t *prop);
+//void amf_dump(amf_object_t *obj);
+//void amf_add_prop(amf_object_t *obj, const amf_object_property_t *prop);
 //int amf_count_prop(amf_object_t *obj);
 //amf_object_property_t* amf_get_prop(amf_object_t *obj, const val_t *name, int index);
 
-// Encode
-uint8_t* amf_encode_string(uint8_t *ptr, const val_t &str); //
-uint8_t* amf_encode_number(uint8_t *ptr, uint64_t value); //
-uint8_t* amf_encode_u16(uint8_t *ptr, uint16_t value); //
-uint8_t* amf_encode_u24(uint8_t *ptr, uint32_t value); //
-uint8_t* amf_encode_u32(uint8_t *ptr, uint32_t value); //
-uint8_t* amf_encode_boolean(uint8_t *ptr, bool value); //
-uint8_t* amf_encode_named_string(uint8_t *ptr, const val_t &name, const val_t &value); //
-uint8_t* amf_encode_named_number(uint8_t *ptr, const val_t &name, uint64_t value); //
-uint8_t* amf_encode_named_boolean(uint8_t *ptr, const val_t &name, bool value); //
-
-/*
-char *amf_encode(amf_object_t *obj, char *pBuffer, char *pBufEnd);
-char *amf_encode_ecma_array(amf_object_t *obj, char *pBuffer, char *pBufEnd);
-char *amf_encode_array(amf_object_t *obj, char *pBuffer, char *pBufEnd);
-*/
-
-// Decode
-uint16_t amf_decode_u16(const uint8_t *ptr); //
-uint32_t amf_decode_u24(const uint8_t *ptr); //
-uint32_t amf_decode_u32(const uint8_t *ptr); //
-uint32_t amf_decode_u32le(const uint8_t *ptr); // Little endian
-void amf_decode_string(const uint8_t *ptr, val_t &str); //
-void amf_decode_longstring(const uint8_t *ptr, val_t &str); //
-bool amf_decode_boolean(const uint8_t *ptr); //
-uint64_t amf_decode_number(const uint8_t *ptr); //
-
-int amf_decode(amf_object_t *obj, const uint8_t *ptr, uint32_t size, bool decode_name); // Decode to object, error: -1
-int amf_decode_array(amf_object_t *obj, const uint8_t *ptr, uint32_t size, uint32_t array_len, bool decode_name); // Decode array, error: -1
-
-/*
 // Property
-amf_data_type_t amfprop_get_type(amf_object_property_t *prop);
-void amfprop_SetNumber(amf_object_property_t *prop, double dval);
-void amfprop_SetBoolean(amf_object_property_t *prop, int bflag);
-void amfprop_SetString(amf_object_property_t *prop, val_t *str);
-void amfprop_SetObject(amf_object_property_t *prop, amf_object_t *obj);
-void amfprop_SetName(amf_object_property_t *prop, val_t *name);
-void amfprop_GetName(amf_object_property_t *prop, val_t *name);
-double amfprop_GetNumber(amf_object_property_t *prop);
-int amfprop_GetBoolean(amf_object_property_t *prop);
-void amfprop_GetString(amf_object_property_t *prop, val_t *str);
-void amfprop_GetObject(amf_object_property_t *prop, amf_object_t *obj);
-int amfprop_IsValid(amf_object_property_t *prop);
-*/
+uint8_t* amfprop_encode(const amf_object_property_t *prop, uint8_t *ptr);
+int amfprop_decode(const amf_object_property_t *prop, const uint8_t *ptr, uint32_t size, bool decode_name); // Decode to prop, error: -1
+void amfprop_dump(const amf_object_property_t *prop);
 
-//char *amfprop_encode(amf_object_property_t *prop, char *pBuffer, char *pBufEnd);
-int amfprop_decode(amf_object_property_t *prop, const uint8_t *ptr, uint32_t size, bool decode_name); // Decode to prop, error: -1
-
-//void amfprop_Dump(amf_object_property_t *prop);
-//void amfprop_Reset(amf_object_property_t *prop);
 
 
 //////////////////////////////////////////////////////////////////
