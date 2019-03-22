@@ -658,12 +658,13 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 	rt_status_t status = RT_STATUS_SUCCESS;
 
 	uint64_t txn;
-	int ret = 0, nRes;
-	amf_object_t obj;
+	
 	val_t method;
 
-	/*
+	//
 	// Returns 0 for OK/Failed/error, 1 for 'Stop or Complete'
+	//
+	//
 	uint32_t data_size = pkt_ptr->valid;
 	uint8_t *ptr = pkt_ptr->data_ptr;
 	if (ptr[0] != AMF_STRING) {
@@ -671,14 +672,15 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 		return status;
 	}
 
-	nRes = AMF_Decode(&obj, body, nBodySize, FALSE);
-	if (nRes < 0)
-	{
-		RTMP_Log(RTMP_LOGERROR, "%s, error decoding invoke packet", __FUNCTION__);
-		return 0;
+	amf_object_t obj;
+	int ret = amf_decode(ptr, obj, data_size, false);
+	if (ret < 0) {
+		status = RT_STATUS_INVALID_PARAMETER;
+		return status;
 	}
+	amf_dump(obj);
 
-	AMF_Dump(&obj);
+	/*
 	AMFProp_GetString(AMF_GetProp(&obj, NULL, 0), &method);
 	txn = AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 1));
 	RTMP_Log(RTMP_LOGDEBUG, "%s, server invoking <%s>", __FUNCTION__, method.av_val);

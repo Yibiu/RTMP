@@ -36,7 +36,7 @@ void amf_dump_prop(const amf_object_property_t &prop)
 	if (name.len > 18) {
 		name.len = 18;
 	}
-	snprintf(str_res, 255, "Name: %18.*s, ", name.len, name.value);
+	snprintf(str_res, 255, "Name: %18.*s, ", name.len, name.value.c_str());
 
 	if (prop.type == AMF_OBJECT || prop.type == AMF_ECMA_ARRAY || prop.type == AMF_STRICT_ARRAY) {
 		amf_dump(prop.object);
@@ -51,7 +51,7 @@ void amf_dump_prop(const amf_object_property_t &prop)
 		snprintf(str, 255, "BOOLEAN:\t%s", prop.number != 0.0 ? "TRUE" : "FALSE");
 		break;
 	case AMF_STRING:
-		snprintf(str, 255, "STRING:\t%.*s", prop.value.len, prop.value.value);
+		snprintf(str, 255, "STRING:\t%.*s", prop.value.len, prop.value.value.c_str());
 		break;
 	case AMF_DATE:
 		snprintf(str, 255, "DATE:\ttimestamp: %.2f, UTC offset: %d", prop.number, prop.UTC_offset);
