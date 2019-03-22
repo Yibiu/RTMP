@@ -369,19 +369,19 @@ rt_status_t CRTMPClient::_invoke_connect()
 	ptr = amf_encode_string(ptr, av_connect);
 	ptr = amf_encode_number(ptr, ++_context.num_invokes);
 	*ptr++ = AMF_OBJECT;
-	val_t app = { (char *)_context.link.app.c_str(), _context.link.app.length() };
+	val_t app = { _context.link.app.length(), _context.link.app };
 	ptr = amf_encode_named_string(ptr, av_app, app);
 	ptr = amf_encode_named_string(ptr, av_type, av_nonprivate);
 	if (!_context.params.flashVer.empty()) {
-		val_t flashVer = { (char *)_context.params.flashVer.c_str(), _context.params.flashVer.length() };
+		val_t flashVer = { _context.params.flashVer.length(), _context.params.flashVer };
 		ptr = amf_encode_named_string(ptr, av_flashVer, flashVer);
 	}
 	if (!_context.params.swfUrl.empty()) {
-		val_t swfUrl = { (char *)_context.params.swfUrl.c_str(), _context.params.swfUrl.length() };
+		val_t swfUrl = { _context.params.swfUrl.length(), _context.params.swfUrl };
 		ptr = amf_encode_named_string(ptr, av_swfUrl, swfUrl);
 	}
 	if (!_context.params.tcUrl.empty()) {
-		val_t tcUrl = { (char *)_context.params.tcUrl.c_str(), _context.params.tcUrl.length() };
+		val_t tcUrl = { _context.params.tcUrl.length(), _context.params.tcUrl };
 		ptr = amf_encode_named_string(ptr, av_tcUrl, tcUrl);
 	}
 	if (0 != _context.params.encoding) {
@@ -392,13 +392,13 @@ rt_status_t CRTMPClient::_invoke_connect()
 	*ptr++ = 0x00;
 	*ptr++ = AMF_OBJECT_END; // end of object - 0x00 0x00 0x09
 	if (!_context.params.auth.empty()) {
-		val_t auth = { (char *)_context.params.auth.c_str(), _context.params.auth.length() };
+		val_t auth = { _context.params.auth.length(), _context.params.auth };
 		ptr = amf_encode_boolean(ptr, true);
 		ptr = amf_encode_string(ptr, auth);
 	}
-	//if (_context.extras.num > 0) {
-	//	for (int i = 0; i < _context.extras.num; i++) {
-	//		ptr = amprop_encode(_context.extras.props[i], ptr);
+	//if (_context.params.extras.num > 0) {
+	//	for (int i = 0; i < _context.params.extras.num; i++) {
+	//		ptr = amf_encode_prop(ptr, _context.params.extras.props[i]);
 	//	}
 	//}
 	packet.size = 4096;
@@ -412,7 +412,7 @@ rt_status_t CRTMPClient::_handle_chunk_size(rtmp_packet_t *pkt_ptr)
 	rt_status_t status = RT_STATUS_SUCCESS;
 
 	if (pkt_ptr->valid >= 4) {
-		_context.in_chunk_size = amf_decode_u24(pkt_ptr->data_ptr);
+		_context.in_chunk_size = amf_decode_u32(pkt_ptr->data_ptr);
 	}
 
 	return status;
