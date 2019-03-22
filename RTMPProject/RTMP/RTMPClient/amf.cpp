@@ -114,7 +114,7 @@ uint8_t* amf_encode_string(uint8_t *ptr, const val_t &value)
 }
 
 // AMF_NUMBER + number(8 bytes)
-uint8_t* amf_encode_number(uint8_t *ptr, uint64_t value)
+uint8_t* amf_encode_number(uint8_t *ptr, double value)
 {
 	*ptr++ = AMF_NUMBER;	// type: Number
 
@@ -182,7 +182,7 @@ uint8_t* amf_encode_named_string(uint8_t *ptr, const val_t &name, const val_t &v
 }
 
 // Name size(2 bytes) + name + amf_encode_number(value)
-uint8_t* amf_encode_named_number(uint8_t *ptr, const val_t &name, uint64_t value)
+uint8_t* amf_encode_named_number(uint8_t *ptr, const val_t &name, double value)
 {
 	ptr = amf_encode_u16(ptr, name.len);
 	memcpy(ptr, name.value.c_str(), name.len);
@@ -330,9 +330,9 @@ void amf_decode_longstring(const uint8_t *ptr, val_t &value)
 	value.value = std::string((char *)ptr + 4, value.len);
 }
 
-uint64_t amf_decode_number(const uint8_t *ptr)
+double amf_decode_number(const uint8_t *ptr)
 {
-	uint64_t value;
+	double value;
 #if __FLOAT_WORD_ORDER == __BYTE_ORDER
 #if __BYTE_ORDER == __BIG_ENDIAN
 	memcpy(&value, ptr, 8);

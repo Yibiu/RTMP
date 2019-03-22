@@ -79,7 +79,7 @@ typedef struct _amf_object_property
 	val_t name;
 	amf_data_type_t type;
 	//union {
-		uint64_t number;
+		double number;
 		val_t value;
 		amf_object_t object;
 	//} vu;
@@ -95,9 +95,9 @@ uint8_t* amf_encode_u24(uint8_t *ptr, uint32_t value);
 uint8_t* amf_encode_u32(uint8_t *ptr, uint32_t value);
 uint8_t* amf_encode_boolean(uint8_t *ptr, bool value);
 uint8_t* amf_encode_string(uint8_t *ptr, const val_t &value);
-uint8_t* amf_encode_number(uint8_t *ptr, uint64_t value);
+uint8_t* amf_encode_number(uint8_t *ptr, double value);
 uint8_t* amf_encode_named_string(uint8_t *ptr, const val_t &name, const val_t &value);
-uint8_t* amf_encode_named_number(uint8_t *ptr, const val_t &name, uint64_t value);
+uint8_t* amf_encode_named_number(uint8_t *ptr, const val_t &name, double value);
 uint8_t* amf_encode_named_boolean(uint8_t *ptr, const val_t &name, bool value);
 uint8_t* amf_encode(uint8_t *ptr, const amf_object_t &obj);
 uint8_t* amf_encode_ecma_array(uint8_t *ptr, const amf_object_t &obj);
@@ -112,7 +112,7 @@ uint32_t amf_decode_u32le(const uint8_t *ptr); // Little endian
 bool amf_decode_boolean(const uint8_t *ptr);
 void amf_decode_string(const uint8_t *ptr, val_t &value);
 void amf_decode_longstring(const uint8_t *ptr, val_t &value);
-uint64_t amf_decode_number(const uint8_t *ptr);
+double amf_decode_number(const uint8_t *ptr);
 int amf_decode(const uint8_t *ptr, amf_object_t &obj, uint32_t size, bool decode_name); // Decode to object, return: skipped bytes or -1 on error
 int amf_decode_array(const uint8_t *ptr, amf_object_t &obj, uint32_t size, uint32_t array_len, bool decode_name); // Decode array, return: skipped bytes or -1 on error
 int amf_decode_prop(const uint8_t *ptr, amf_object_property_t &prop, uint32_t size, bool decode_name); // Decode to prop, return: skipped bytes or -1 on error
