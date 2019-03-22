@@ -2,7 +2,6 @@
 
 
 #define AVDEF(x)	static const val_t av_##x = AVINIT(#x)
-AVDEF(connect);
 AVDEF(app);
 AVDEF(type);
 AVDEF(nonprivate);
@@ -10,6 +9,29 @@ AVDEF(flashVer);
 AVDEF(swfUrl);
 AVDEF(tcUrl);
 AVDEF(objectEncoding);
+
+// Invoke
+AVDEF(connect);
+AVDEF(play);
+AVDEF(publish);
+AVDEF(_checkbw);
+AVDEF(set_playlist);
+AVDEF(releaseStream);
+AVDEF(FCPublish);
+AVDEF(createStream);
+
+// Method
+AVDEF(_result);
+AVDEF(onBWDone);
+AVDEF(onFCSubscribe);
+AVDEF(onFCUnsubscribe);
+AVDEF(ping);
+AVDEF(_onbwcheck);
+AVDEF(_onbwdone);
+AVDEF(_error);
+AVDEF(close);
+AVDEF(onStatus);
+AVDEF(playlist_ready);
 
 
 uint32_t g_msg_header_size[4] = { 11, 7, 3, 0 };
@@ -41,7 +63,7 @@ CRTMPClient::CRTMPClient()
 	_context.in_bytes_count = 0;
 	_context.out_bytes_count = 0;
 
-	_context.num_invokes = 0;
+	_context.invoke_ids = 0;
 	_context.invokes.clear();
 	_context.in_channels.clear();
 	_context.out_channels.clear();
@@ -367,7 +389,7 @@ rt_status_t CRTMPClient::_invoke_connect()
 	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
 	uint8_t *ptr = packet.data_ptr;
 	ptr = amf_encode_string(ptr, av_connect);
-	ptr = amf_encode_number(ptr, ++_context.num_invokes);
+	ptr = amf_encode_number(ptr, ++_context.invoke_ids);
 	*ptr++ = AMF_OBJECT;
 	val_t app = { _context.link.app.length(), _context.link.app };
 	ptr = amf_encode_named_string(ptr, av_app, app);
@@ -401,6 +423,79 @@ rt_status_t CRTMPClient::_invoke_connect()
 	//		ptr = amf_encode_prop(ptr, _context.params.extras.props[i]);
 	//	}
 	//}
+	packet.size = 4096;
+	packet.valid = ptr - packet.data_ptr;
+
+	return _send_packet(&packet, true);
+}
+
+rt_status_t CRTMPClient::_invoke_release_stream()
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_OVER_CONNECTION;
+	packet.msg_type = RTMP_MSG_TYPE_INVOKE;
+	packet.msg_stream_id = 0; // Because of no stream now
+	packet.timestamp = 0;
+
+	uint8_t buffer[4096];
+	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
+	uint8_t *ptr = packet.data_ptr;
+	ptr = amf_encode_string(ptr, av_releaseStream);
+	ptr = amf_encode_number(ptr, ++_context.invoke_ids);
+	*ptr++ = AMF_NULL;
+	val_t playpath = { _context.link.stream.length(), _context.link.stream };
+	ptr = amf_encode_string(ptr, playpath);
+	packet.size = 4096;
+	packet.valid = ptr - packet.data_ptr;
+
+	return _send_packet(&packet, false);
+}
+
+rt_status_t CRTMPClient::_invoke_fcpublish()
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_OVER_CONNECTION;
+	packet.msg_type = RTMP_MSG_TYPE_INVOKE;
+	packet.msg_stream_id = 0; // Because of no stream now
+	packet.timestamp = 0;
+
+	uint8_t buffer[4096];
+	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
+	uint8_t *ptr = packet.data_ptr;
+	ptr = amf_encode_string(ptr, av_FCPublish);
+	ptr = amf_encode_number(ptr, ++_context.invoke_ids);
+	*ptr++ = AMF_NULL;
+	val_t playpath = { _context.link.stream.length(), _context.link.stream };
+	ptr = amf_encode_string(ptr, playpath);
+	packet.size = 4096;
+	packet.valid = ptr - packet.data_ptr;
+
+	return _send_packet(&packet, false);
+}
+
+rt_status_t CRTMPClient::_invoke_create_stream()
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_OVER_CONNECTION;
+	packet.msg_type = RTMP_MSG_TYPE_INVOKE;
+	packet.msg_stream_id = 0; // Because of no stream now
+	packet.timestamp = 0;
+
+	uint8_t buffer[4096];
+	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
+	uint8_t *ptr = packet.data_ptr;
+	ptr = amf_encode_string(ptr, av_createStream);
+	ptr = amf_encode_number(ptr, ++_context.invoke_ids);
+	*ptr++ = AMF_NULL;
 	packet.size = 4096;
 	packet.valid = ptr - packet.data_ptr;
 
@@ -657,9 +752,6 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
-	uint64_t txn;
-	
-	val_t method;
 
 	//
 	// Returns 0 for OK/Failed/error, 1 for 'Stop or Complete'
@@ -672,6 +764,8 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 		return status;
 	}
 
+	// Parse the received data...
+	//
 	amf_object_t obj;
 	int ret = amf_decode(ptr, obj, data_size, false);
 	if (ret < 0) {
@@ -680,220 +774,224 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 	}
 	amf_dump(obj);
 
-	/*
-	AMFProp_GetString(AMF_GetProp(&obj, NULL, 0), &method);
-	txn = AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 1));
-	RTMP_Log(RTMP_LOGDEBUG, "%s, server invoking <%s>", __FUNCTION__, method.av_val);
-
-	if (AVMATCH(&method, &av__result))
-	{
-		AVal methodInvoked = { 0 };
-		int i;
-
-		for (i = 0; i<r->m_numCalls; i++) {
-			if (r->m_methodCalls[i].num == (int)txn) {
-				methodInvoked = r->m_methodCalls[i].name;
-				AV_erase(r->m_methodCalls, &r->m_numCalls, i, FALSE);
-				break;
-			}
+	// Analysis the data...
+	// Object begin
+	//     Property: <name, string>		// Method
+	//     Property: <name, number>		// id
+	// ......
+	// Object end
+	//
+	amf_object_property_t prop;
+	do {
+		val_t method;
+		prop = obj.props[0];
+		if (prop.type != AMF_STRING) {
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
 		}
-		if (!methodInvoked.av_val) {
-			RTMP_Log(RTMP_LOGDEBUG, "%s, received result id %f without matching request", __FUNCTION__, txn);
-			goto leave;
+		method = prop.value;
+
+		uint64_t id = 0;
+		prop = obj.props[1];
+		if (prop.type != AMF_NUMBER) {
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
 		}
+		id = prop.number;
 
-		RTMP_Log(RTMP_LOGDEBUG, "%s, received result for method call <%s>", __FUNCTION__, methodInvoked.av_val);
+		// Method: _result
+		if (AVMATCH(&method, &av__result)) {
+			val_t method_invoked = { 0, "" };
 
-		if (AVMATCH(&methodInvoked, &av_connect))
-		{
-			if (r->Link.token.av_len)
-			{
-				AMFObjectProperty p;
-				if (RTMP_FindFirstMatchingProperty(&obj, &av_secureToken, &p))
-				{
-					DecodeTEA(&r->Link.token, &p.p_vu.p_aval);
-					SendSecureTokenResponse(r, &p.p_vu.p_aval);
+			// Find cached invokes
+			std::vector<rtmp_invoke_t>::iterator iter;
+			for (iter = _context.invokes.begin(); iter != _context.invokes.end(); iter++) {
+				rtmp_invoke_t invoke = (*iter);
+				if (invoke.id == id) {
+					method_invoked.value = invoke.invoke;
+					method_invoked.len = invoke.invoke.length();
+					_context.invokes.erase(iter);
+					break;
 				}
 			}
-			if (r->Link.protocol & RTMP_FEATURE_WRITE)
-			{
-				SendReleaseStream(r);
-				SendFCPublish(r);
-			}
-			else
-			{
-				RTMP_SendServerBW(r);
-				RTMP_SendCtrl(r, 3, 0, 300);
-			}
-			RTMP_SendCreateStream(r);
-
-			if (!(r->Link.protocol & RTMP_FEATURE_WRITE))
-			{
-				// Authenticate on Justin.tv legacy servers before sending FCSubscribe
-				if (r->Link.usherToken.av_len)
-					SendUsherToken(r, &r->Link.usherToken);
-				// Send the FCSubscribe if live stream or if subscribepath is set
-				if (r->Link.subscribepath.av_len)
-					SendFCSubscribe(r, &r->Link.subscribepath);
-				else if (r->Link.lFlags & RTMP_LF_LIVE)
-					SendFCSubscribe(r, &r->Link.playpath);
-			}
-		}
-		else if (AVMATCH(&methodInvoked, &av_createStream))
-		{
-			r->m_stream_id = (int)AMFProp_GetNumber(AMF_GetProp(&obj, NULL, 3));
-
-			if (r->Link.protocol & RTMP_FEATURE_WRITE)
-			{
-				SendPublish(r);
-			}
-			else
-			{
-				if (r->Link.lFlags & RTMP_LF_PLST)
-					SendPlaylist(r);
-				SendPlay(r);
-				RTMP_SendCtrl(r, 3, r->m_stream_id, r->m_nBufferMS);
-			}
-		}
-		else if (AVMATCH(&methodInvoked, &av_play) ||
-			AVMATCH(&methodInvoked, &av_publish))
-		{
-			r->m_bPlaying = TRUE;
-		}
-		free(methodInvoked.av_val);
-	}
-	else if (AVMATCH(&method, &av_onBWDone))
-	{
-		if (!r->m_nBWCheckCounter)
-			SendCheckBW(r);
-	}
-	else if (AVMATCH(&method, &av_onFCSubscribe))
-	{
-		// SendOnFCSubscribe();
-	}
-	else if (AVMATCH(&method, &av_onFCUnsubscribe))
-	{
-		RTMP_Close(r);
-		ret = 1;
-	}
-	else if (AVMATCH(&method, &av_ping))
-	{
-		SendPong(r, txn);
-	}
-	else if (AVMATCH(&method, &av__onbwcheck))
-	{
-		SendCheckBWResult(r, txn);
-	}
-	else if (AVMATCH(&method, &av__onbwdone))
-	{
-		int i;
-		for (i = 0; i < r->m_numCalls; i++)
-			if (AVMATCH(&r->m_methodCalls[i].name, &av__checkbw))
-			{
-				AV_erase(r->m_methodCalls, &r->m_numCalls, i, TRUE);
+			if (0 == method_invoked.len) {
+				status = RT_STATUS_INVALID_PARAMETER;
 				break;
 			}
-	}
-	else if (AVMATCH(&method, &av__error))
-	{
-		RTMP_Log(RTMP_LOGERROR, "rtmp server sent error");
-	}
-	else if (AVMATCH(&method, &av_close))
-	{
-		RTMP_Log(RTMP_LOGERROR, "rtmp server requested close");
-		RTMP_Close(r);
-	}
-	else if (AVMATCH(&method, &av_onStatus))
-	{
-		AMFObject obj2;
-		AVal code, level;
-		AMFProp_GetObject(AMF_GetProp(&obj, NULL, 3), &obj2);
-		AMFProp_GetString(AMF_GetProp(&obj2, &av_code, -1), &code);
-		AMFProp_GetString(AMF_GetProp(&obj2, &av_level, -1), &level);
 
-		RTMP_Log(RTMP_LOGDEBUG, "%s, onStatus: %s", __FUNCTION__, code.av_val);
-		if (AVMATCH(&code, &av_NetStream_Failed)
-			|| AVMATCH(&code, &av_NetStream_Play_Failed)
-			|| AVMATCH(&code, &av_NetStream_Play_StreamNotFound)
-			|| AVMATCH(&code, &av_NetConnection_Connect_InvalidApp))
-		{
-			r->m_stream_id = -1;
-			RTMP_Close(r);
-			RTMP_Log(RTMP_LOGERROR, "Closing connection: %s", code.av_val);
+			// Response this invoke
+			if (AVMATCH(&method_invoked, &av_connect)) {
+				// Object begin
+				//     Property: <name, string>			// Prop 0	_result
+				//     Property: <name, number>			// Prop 1	0.00
+				//     Object begin						// Prop 2
+				//         Property: <name, string>					FMS/3,0,1,123
+				//         Property: <name, number>					31.00
+				//     Object end
+				//     Object begin						// Prop3
+				//         Property: <name, string>					status
+				//         Property: <name, string>					NetConnection.Connect.Success
+				//         Property: <name, string>					Connection succeeded.
+				//         Property: <name, number>					0.00
+				//     Object end
+				// Object end
+
+				// Push mode...
+				_invoke_release_stream();
+				_invoke_fcpublish();
+
+				// Pull mode...
+				//RTMP_SendServerBW(r);
+				//RTMP_SendCtrl(r, 3, 0, 300);
+
+				_invoke_create_stream();
+
+				// Only pull mode...
+				// ...
+			}
+			else if (AVMATCH(&method_invoked, &av_createStream)) {
+				prop = obj.props[3];
+				if (prop.type != AMF_NUMBER) {
+					status = RT_STATUS_INVALID_PARAMETER;
+					break;
+				}
+				_context.stream_id = (uint32_t)prop.number;
+
+				// Push mode...
+				//SendPublish(r);
+
+				// Pull mode...
+			}
+			else if (AVMATCH(&method_invoked, &av_play) || AVMATCH(&method_invoked, &av_publish)) {
+				_context.playing = true;
+			}
 		}
-
-		else if (AVMATCH(&code, &av_NetStream_Play_Start)
-			|| AVMATCH(&code, &av_NetStream_Play_PublishNotify))
-		{
-			int i;
-			r->m_bPlaying = TRUE;
-			for (i = 0; i < r->m_numCalls; i++)
-			{
-				if (AVMATCH(&r->m_methodCalls[i].name, &av_play))
-				{
-					AV_erase(r->m_methodCalls, &r->m_numCalls, i, TRUE);
+		// Method: onBWDone
+		else if (AVMATCH(&method, &av_onBWDone)) {
+			//if (!r->m_nBWCheckCounter)
+			//	SendCheckBW(r);
+		}
+		// Method: onFCSubscribe
+		else if (AVMATCH(&method, &av_onFCSubscribe)) {
+			// SendOnFCSubscribe();
+		}
+		// Method: onFCUnsubscribe
+		else if (AVMATCH(&method, &av_onFCUnsubscribe)) {
+		}
+		// Method: ping
+		else if (AVMATCH(&method, &av_ping)) {
+			//SendPong(r, txn);
+		}
+		// Method: _onbwcheck
+		else if (AVMATCH(&method, &av__onbwcheck)) {
+			//SendCheckBWResult(r, txn);
+		}
+		// Method: _onbwdone
+		else if (AVMATCH(&method, &av__onbwdone)) {
+			std::vector<rtmp_invoke_t>::iterator iter;
+			for (iter = _context.invokes.begin(); iter != _context.invokes.end(); iter++) {
+				rtmp_invoke_t invoke = (*iter);
+				if (0 == invoke.invoke.compare(av__checkbw.value)) {
+					_context.invokes.erase(iter);
 					break;
 				}
 			}
 		}
+		// Method: _error
+		else if (AVMATCH(&method, &av__error)) {
+		}
+		// Method: close
+		else if (AVMATCH(&method, &av_close)) {
+			//RTMP_Close(r);
+		}
+		// Method: onStatus
+		else if (AVMATCH(&method, &av_onStatus)) {
+			/*
+			AMFObject obj2;
+			AVal code, level;
+			AMFProp_GetObject(AMF_GetProp(&obj, NULL, 3), &obj2);
+			AMFProp_GetString(AMF_GetProp(&obj2, &av_code, -1), &code);
+			AMFProp_GetString(AMF_GetProp(&obj2, &av_level, -1), &level);
 
-		else if (AVMATCH(&code, &av_NetStream_Publish_Start))
-		{
-			int i;
-			r->m_bPlaying = TRUE;
-			for (i = 0; i < r->m_numCalls; i++)
+			RTMP_Log(RTMP_LOGDEBUG, "%s, onStatus: %s", __FUNCTION__, code.av_val);
+			if (AVMATCH(&code, &av_NetStream_Failed)
+				|| AVMATCH(&code, &av_NetStream_Play_Failed)
+				|| AVMATCH(&code, &av_NetStream_Play_StreamNotFound)
+				|| AVMATCH(&code, &av_NetConnection_Connect_InvalidApp))
 			{
-				if (AVMATCH(&r->m_methodCalls[i].name, &av_publish))
+				r->m_stream_id = -1;
+				RTMP_Close(r);
+				RTMP_Log(RTMP_LOGERROR, "Closing connection: %s", code.av_val);
+			}
+
+			else if (AVMATCH(&code, &av_NetStream_Play_Start)
+				|| AVMATCH(&code, &av_NetStream_Play_PublishNotify))
+			{
+				int i;
+				r->m_bPlaying = TRUE;
+				for (i = 0; i < r->m_numCalls; i++)
 				{
-					AV_erase(r->m_methodCalls, &r->m_numCalls, i, TRUE);
+					if (AVMATCH(&r->m_methodCalls[i].name, &av_play))
+					{
+						AV_erase(r->m_methodCalls, &r->m_numCalls, i, TRUE);
+						break;
+					}
+				}
+			}
+
+			else if (AVMATCH(&code, &av_NetStream_Publish_Start))
+			{
+				int i;
+				r->m_bPlaying = TRUE;
+				for (i = 0; i < r->m_numCalls; i++)
+				{
+					if (AVMATCH(&r->m_methodCalls[i].name, &av_publish))
+					{
+						AV_erase(r->m_methodCalls, &r->m_numCalls, i, TRUE);
+						break;
+					}
+				}
+			}
+
+			// Return 1 if this is a Play.Complete or Play.Stop
+			else if (AVMATCH(&code, &av_NetStream_Play_Complete)
+				|| AVMATCH(&code, &av_NetStream_Play_Stop)
+				|| AVMATCH(&code, &av_NetStream_Play_UnpublishNotify))
+			{
+				RTMP_Close(r);
+				ret = 1;
+			}
+
+			else if (AVMATCH(&code, &av_NetStream_Seek_Notify))
+			{
+				r->m_read.flags &= ~RTMP_READ_SEEKING;
+			}
+
+			else if (AVMATCH(&code, &av_NetStream_Pause_Notify))
+			{
+				if (r->m_pausing == 1 || r->m_pausing == 2)
+				{
+					RTMP_SendPause(r, FALSE, r->m_pauseStamp);
+					r->m_pausing = 3;
+				}
+			}
+			*/
+		}
+		// Method: playlist_ready
+		else if (AVMATCH(&method, &av_playlist_ready)) {
+			std::vector<rtmp_invoke_t>::iterator iter;
+			for (iter = _context.invokes.begin(); iter != _context.invokes.end(); iter++) {
+				rtmp_invoke_t invoke = (*iter);
+				if (0 == invoke.invoke.compare(av_set_playlist.value)) {
+					_context.invokes.erase(iter);
 					break;
 				}
 			}
 		}
-
-		// Return 1 if this is a Play.Complete or Play.Stop
-		else if (AVMATCH(&code, &av_NetStream_Play_Complete)
-			|| AVMATCH(&code, &av_NetStream_Play_Stop)
-			|| AVMATCH(&code, &av_NetStream_Play_UnpublishNotify))
-		{
-			RTMP_Close(r);
-			ret = 1;
+		else{
+			// ...
 		}
-
-		else if (AVMATCH(&code, &av_NetStream_Seek_Notify))
-		{
-			r->m_read.flags &= ~RTMP_READ_SEEKING;
-		}
-
-		else if (AVMATCH(&code, &av_NetStream_Pause_Notify))
-		{
-			if (r->m_pausing == 1 || r->m_pausing == 2)
-			{
-				RTMP_SendPause(r, FALSE, r->m_pauseStamp);
-				r->m_pausing = 3;
-			}
-		}
-	}
-	else if (AVMATCH(&method, &av_playlist_ready))
-	{
-		int i;
-		for (i = 0; i < r->m_numCalls; i++)
-		{
-			if (AVMATCH(&r->m_methodCalls[i].name, &av_set_playlist))
-			{
-				AV_erase(r->m_methodCalls, &r->m_numCalls, i, TRUE);
-				break;
-			}
-		}
-	}
-	else
-	{
-
-	}
-leave:
-	AMF_Reset(&obj);
-	return ret;
-	*/
+	} while (false);
 
 	return status;
 }
@@ -1192,8 +1290,8 @@ rt_status_t CRTMPClient::_send_packet(rtmp_packet_t *pkt_ptr, bool queue)
 				rtmp_invoke_t invoke;
 
 				ptr += content.len + 3;
-				invoke.num = amf_decode_number(ptr);
-				invoke.invoke = std::string(content.value, content.len);
+				invoke.id = amf_decode_number(ptr);
+				invoke.invoke = std::string(content.value.c_str(), content.len);
 				_context.invokes.push_back(invoke);
 			}
 		}

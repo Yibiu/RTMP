@@ -133,7 +133,7 @@ typedef struct _rtmp_param
 
 typedef struct _rtmp_invoke
 {
-	uint32_t num;
+	uint64_t id;
 	std::string invoke;
 } rtmp_invoke_t;
 
@@ -153,8 +153,8 @@ typedef struct _rtmp_context
 	uint64_t in_bytes_count;
 	uint64_t out_bytes_count;
 
-	uint64_t num_invokes;
-	std::list<rtmp_invoke_t> invokes;
+	uint64_t invoke_ids;
+	std::vector<rtmp_invoke_t> invokes;
 	std::map<uint32_t, rtmp_packet_t> in_channels;
 	std::map<uint32_t, rtmp_packet_t> out_channels;
 } rtmp_context_t;

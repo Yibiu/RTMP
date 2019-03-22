@@ -25,6 +25,9 @@ protected:
 	rt_status_t _parse_url(const char *url);
 	rt_status_t _handshake();
 	rt_status_t _invoke_connect();
+	rt_status_t _invoke_release_stream();
+	rt_status_t _invoke_fcpublish();
+	rt_status_t _invoke_create_stream();
 
 	rt_status_t _handle_chunk_size(rtmp_packet_t *pkt_ptr);
 	rt_status_t _handle_bytes_read_report(rtmp_packet_t *pkt_ptr);
