@@ -6,8 +6,8 @@
 #include <thread>
 extern "C"
 {
-#include "libavformat\avformat.h"
-#include "libavutil\time.h"
+#include "libavformat/avformat.h"
+#include "libavutil/time.h"
 }
 #include "../LibRTMP/rtmp.h"
 #include "../LibRTMP/log.h"

@@ -33,6 +33,12 @@
     <ClInclude Include="sys_bytes.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="test_client.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="statistics.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -45,6 +51,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="common\logger.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="test_client.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
