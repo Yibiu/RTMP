@@ -1501,7 +1501,9 @@ rt_status_t CRTMPClient::_send_packet(rtmp_packet_t *pkt_ptr, bool queue)
 				pkt_ptr->chk_type = RTMP_CHUNK_TYPE_MINIMUM;
 			}
 
-			last_timestamp = pre_packet.timestamp; // Use delt timestamp
+			if (pkt_ptr->chk_type != RTMP_CHUNK_TYPE_LARGE) {
+				last_timestamp = pre_packet.timestamp; // Optimized, using delt timestamp
+			}
 		}
 		uint32_t timestamp = pkt_ptr->timestamp - last_timestamp;
 
