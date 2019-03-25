@@ -168,10 +168,20 @@ rt_status_t CRTMPClient::connect(uint32_t timeout_secs)
 			service.sin_addr = *(struct in_addr *)host->h_addr;
 		}
 		service.sin_port = htons(_context.link.port);
-		if (::connect(_context.socket, (sockaddr *)&service, sizeof(sockaddr)) < 0) {
+		
+		u_long nblk = 1;
+		ioctlsocket(_context.socket, FIONBIO, &nblk);
+		::connect(_context.socket, (sockaddr *)&service, sizeof(sockaddr)); // Non-block, ignore return
+		fd_set fds;
+		timeval con_tv = { timeout_secs, 0 };
+		FD_ZERO(&fds);
+		FD_SET(_context.socket, &fds);
+		if (select(NULL, NULL, &fds, NULL, &con_tv) <= 0) {
 			status = RT_STATUS_SOCKET_ERR;
 			break;
 		}
+		nblk = 0;
+		ioctlsocket(_context.socket, FIONBIO, &nblk);
 
 		// Rcv and send timeout
 #ifdef WIN32

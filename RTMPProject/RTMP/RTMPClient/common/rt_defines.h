@@ -211,7 +211,7 @@ static inline void rtmp_copy_packet(rtmp_packet_t *dst_pkt_ptr, const rtmp_packe
 	dst_pkt_ptr->msg_type = src_pkt_ptr->msg_type;
 	dst_pkt_ptr->msg_stream_id = src_pkt_ptr->msg_stream_id;
 	dst_pkt_ptr->timestamp = src_pkt_ptr->timestamp;
-	// No copy folowing...
+	// No copy following...
 	//dst_pkt_ptr->size = src_pkt_ptr->size;
 	//dst_pkt_ptr->valid = src_pkt_ptr->valid;
 	//dst_pkt_ptr->data_ptr = src_pkt_ptr->data_ptr;
