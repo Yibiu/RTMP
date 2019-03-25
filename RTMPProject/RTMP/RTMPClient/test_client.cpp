@@ -1,7 +1,7 @@
 #include "test_client.h"
 
 
-CTestClient::CTestClient()
+CTestPusher::CTestPusher()
 {
 	_rtmp_ptr = NULL;
 	_manage.fmt_context = NULL;
@@ -12,11 +12,11 @@ CTestClient::CTestClient()
 	_thread_ptr = NULL;
 }
 
-CTestClient::~CTestClient()
+CTestPusher::~CTestPusher()
 {
 }
 
-bool CTestClient::create(const char *path_ptr, rtmp_metadata_t &metadata, stream_type_t type)
+bool CTestPusher::create(const char *path_ptr, rtmp_metadata_t &metadata, stream_type_t type)
 {
 	bool success = false;
 
@@ -47,7 +47,7 @@ bool CTestClient::create(const char *path_ptr, rtmp_metadata_t &metadata, stream
 	return success;
 }
 
-void CTestClient::destroy()
+void CTestPusher::destroy()
 {
 	if (NULL != _rtmp_ptr) {
 		delete _rtmp_ptr;
@@ -55,7 +55,7 @@ void CTestClient::destroy()
 	}
 }
 
-bool CTestClient::connect(const char *url_ptr, uint32_t timeout_secs)
+bool CTestPusher::connect(const char *url_ptr, uint32_t timeout_secs)
 {
 	bool success = false;
 
@@ -86,7 +86,7 @@ bool CTestClient::connect(const char *url_ptr, uint32_t timeout_secs)
 	return success;
 }
 
-void CTestClient::disconnect()
+void CTestPusher::disconnect()
 {
 	_running = false;
 	if (NULL != _thread_ptr) {
@@ -100,7 +100,7 @@ void CTestClient::disconnect()
 	}
 }
 
-void CTestClient::thread_proc_internal()
+void CTestPusher::thread_proc_internal()
 {
 	printf("-------------- Enter Thread ---------------\n");
 
@@ -158,7 +158,7 @@ void CTestClient::thread_proc_internal()
 }
 
 
-bool CTestClient::_parse_streams(rtmp_metadata_t &metadata, stream_type_t type)
+bool CTestPusher::_parse_streams(rtmp_metadata_t &metadata, stream_type_t type)
 {
 	for (int i = 0; i < _manage.fmt_context->nb_streams; i++) {
 		// Video stream

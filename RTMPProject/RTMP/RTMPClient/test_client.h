@@ -29,13 +29,13 @@ typedef struct _fmt_manage
 
 /**
 * @brief:
-* Test rtmp client
+* Test rtmp pusher client
 */
-class CTestClient
+class CTestPusher
 {
 public:
-	CTestClient();
-	virtual ~CTestClient();
+	CTestPusher();
+	virtual ~CTestPusher();
 
 	bool create(const char *path_ptr, rtmp_metadata_t &metadata, stream_type_t type);
 	void destroy();
@@ -44,7 +44,7 @@ public:
 
 	static void thread_proc(void *param)
 	{
-		CTestClient *this_ptr = (CTestClient *)param;
+		CTestPusher *this_ptr = (CTestPusher *)param;
 		if (NULL != this_ptr)
 			this_ptr->thread_proc_internal();
 	}

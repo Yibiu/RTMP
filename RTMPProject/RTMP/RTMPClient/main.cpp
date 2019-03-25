@@ -5,7 +5,7 @@
 
 int main(int argc, char *argv[])
 {
-	CTestClient test_client;
+	CTestPusher test_client;
 	
 	do {
 		CLogger::get_instance()->add_level(CLogger::LOG_LEVEL_DEBUG);

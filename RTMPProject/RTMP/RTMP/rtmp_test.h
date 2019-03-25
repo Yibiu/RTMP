@@ -67,11 +67,11 @@ typedef struct _fmt_manage
 * Read frames from file --> dispatch by fps --> rtmp.
 * Only video frames. The pts read from file may be 0.
 */
-class CRTMPTest
+class CTestPusher
 {
 public:
-	CRTMPTest();
-	virtual ~CRTMPTest();
+	CTestPusher();
+	virtual ~CTestPusher();
 
 	bool create(const char *path_ptr, rtmp_metadata_t &metadata, stream_type_t type);
 	void destroy();
@@ -80,7 +80,7 @@ public:
 
 	static void thread_proc(void *param)
 	{
-		CRTMPTest *this_ptr = (CRTMPTest *)param;
+		CTestPusher *this_ptr = (CTestPusher *)param;
 		if (NULL != this_ptr)
 			this_ptr->thread_proc_internal();
 	}
