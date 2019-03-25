@@ -110,7 +110,7 @@ bool CRTMPTest::create(const char *path_ptr, rtmp_metadata_t &metadata, stream_t
 		if (!_parse_streams(metadata, type))
 			break;
 
-		RTMP_LogSetLevel(RTMP_LOGALL);
+		//RTMP_LogSetLevel(RTMP_LOGALL);
 #ifdef LOG_FILE
 		_file_ptr = fopen("./rtmp.log", "wb+");
 		if (NULL == _file_ptr)

@@ -13,7 +13,7 @@ int main(int argc, char *argv[])
 		CLogger::get_instance()->add_level(CLogger::LOG_LEVEL_ERROR);
 		CLogger::get_instance()->add_tag(TAG_AMF);
 		CLogger::get_instance()->add_tag(TAG_RTMP);
-		CLogger::get_instance()->open_console();
+		//CLogger::get_instance()->open_console();
 
 		rtmp_metadata_t metadata = { 0 };
 		metadata.width = 1920;

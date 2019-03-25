@@ -97,15 +97,21 @@ rt_status_t CRTMPClient::create(const char *url)
 	rt_status_t status = RT_STATUS_SUCCESS;
 
 	do {
+		status = _init_network();
+		CHECK_BREAK(rt_is_success(status));
+
 		status = _parse_url(url);
 		CHECK_BREAK(rt_is_success(status));
 		if (RTMP_PROTOCOL_RTMP != _context.link.protocol) {
 			status = RT_STATUS_NOT_SUPPORT;
 			break;
 		}
-
-		status = _init_network();
-		CHECK_BREAK(rt_is_success(status));
+		LogD(TAG_RTMP, "url: %s", url);
+		LogD(TAG_RTMP, "protocol: %d", _context.link.protocol);
+		LogD(TAG_RTMP, "host: %s", _context.link.host.c_str());
+		LogD(TAG_RTMP, "port: %d", _context.link.port);
+		LogD(TAG_RTMP, "app: %s", _context.link.app.c_str());
+		LogD(TAG_RTMP, "stream: %s", _context.link.stream.c_str());
 
 		_recv_pkt_ptr = new rtmp_packet_t;
 		if (NULL == _recv_pkt_ptr) {
@@ -154,7 +160,7 @@ rt_status_t CRTMPClient::connect(uint32_t timeout_secs)
 			break;
 		}
 
-		// Connect timeout
+		// Connect with timeout(block --> non-block --> block)
 		sockaddr_in service;
 		memset(&service, 0x00, sizeof(sockaddr_in));
 		service.sin_family = AF_INET;
@@ -183,7 +189,7 @@ rt_status_t CRTMPClient::connect(uint32_t timeout_secs)
 		nblk = 0;
 		ioctlsocket(_context.socket, FIONBIO, &nblk);
 
-		// Rcv and send timeout
+		// Set recv and send timeout
 #ifdef WIN32
 		int tv = timeout_secs * 1000;
 #else
@@ -596,13 +602,20 @@ rt_status_t CRTMPClient::_invoke_connect()
 	packet.timestamp = 0;
 
 	//
-	// Push:
-	// connect + invokes + app + type + flashVer + swfUrl + tcUrl
-	// + objectEncoding + auth + extras
-	// Pull:
-	// connect + invokes + app + flashVer + swfUrl + tcUrl
-	// + fpad + capabilities + audioCodecs + videoCodecs + videoFunction + pageUrl
-	// + objectEncoding + auth + extras
+	// "connect":
+	// +-------------------------+---------+--------------------------------------------------------------+
+	// |         Field Name      |   Type  |          Description                                         |
+	// +-------------------------+---------+--------------------------------------------------------------+
+	// |      Command Name       |  String | Name of the command.Set to "connect".                        |
+	// +-------------------------+---------+--------------------------------------------------------------+
+	// |       Transaction ID    |  Number | Always set to 1.                                             |
+	// +-------------------------+---------+--------------------------------------------------------------+
+	// |       Command Object    |  Object | Command information object which has the name - value pairs. |
+	// +-------------------------+---------+--------------------------------------------------------------+
+	// | Optional User Arguments |  Object | Any optional information                                     |
+	// +-------------------------+---------+--------------------------------------------------------------+
+	//
+	// pairs:...
 	//
 	uint8_t buffer[4096];
 	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
@@ -626,7 +639,6 @@ rt_status_t CRTMPClient::_invoke_connect()
 		ptr = amf_encode_named_string(ptr, av_tcUrl, tcUrl);
 	}
 	if (0 != _context.params.encoding) {
-		// AMF3
 		ptr = amf_encode_named_number(ptr, av_objectEncoding, _context.params.encoding);
 	}
 	*ptr++ = 0x00;
@@ -802,6 +814,7 @@ rt_status_t CRTMPClient::_handle_chunk_size(rtmp_packet_t *pkt_ptr)
 
 	if (pkt_ptr->valid >= 4) {
 		_context.in_chunk_size = amf_decode_u32(pkt_ptr->data_ptr);
+		LogD(TAG_RTMP, "In chunk size = %d", _context.in_chunk_size);
 	}
 
 	return status;
@@ -916,6 +929,7 @@ rt_status_t CRTMPClient::_handle_server_bw(rtmp_packet_t *pkt_ptr)
 
 	if (pkt_ptr->valid >= 4) {
 		_context.server_bw = amf_decode_u32(pkt_ptr->data_ptr);
+		LogD(TAG_RTMP, "Server bandwidth = %d", _context.server_bw);
 	}
 
 	return status;
@@ -927,10 +941,12 @@ rt_status_t CRTMPClient::_handle_client_bw(rtmp_packet_t *pkt_ptr)
 
 	if (pkt_ptr->valid >= 4) {
 		_context.client_bw = amf_decode_u32(pkt_ptr->data_ptr);
+		LogD(TAG_RTMP, "Client bandwidth = %d", _context.client_bw);
 	}
 	_context.client_bw2 = 0;
 	if (pkt_ptr->valid > 4) {
 		_context.client_bw2 = pkt_ptr->data_ptr[4];
+		LogD(TAG_RTMP, "Client bandwidth2 = %d", _context.client_bw2);
 	}
 
 	return status;
@@ -1046,58 +1062,47 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
-
 	//
-	// Returns 0 for OK/Failed/error, 1 for 'Stop or Complete'
-	//
-	//
-	uint32_t data_size = pkt_ptr->valid;
-	uint8_t *ptr = pkt_ptr->data_ptr;
-	if (ptr[0] != AMF_STRING) {
-		status = RT_STATUS_INVALID_PARAMETER;
-		return status;
-	}
-
-	// Parse the received data...
-	//
-	amf_object_t obj;
-	int ret = amf_decode(ptr, obj, data_size, false);
-	if (ret < 0) {
-		status = RT_STATUS_INVALID_PARAMETER;
-		return status;
-	}
-	amf_dump(obj);
-
-	// Analysis the data...
 	// Object begin
 	//     Property: <name, string>		// Method
 	//     Property: <name, number>		// id
 	// ......
 	// Object end
 	//
-	amf_object_property_t prop;
+	uint32_t data_size = pkt_ptr->valid;
+	uint8_t *ptr = pkt_ptr->data_ptr;
+	amf_object_t obj;
 	do {
-		val_t method;
-		prop = obj.props[0];
-		if (prop.type != AMF_STRING) {
+		// Parse the received data to AMF/AMF3 object...
+		if (ptr[0] != AMF_STRING) {
 			status = RT_STATUS_INVALID_PARAMETER;
 			break;
 		}
-		method = prop.value;
+		int ret = amf_decode(ptr, obj, data_size, false);
+		if (ret < 0) {
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
+		}
+		amf_dump(obj);
 
-		uint64_t id = 0;
+		amf_object_property_t prop = obj.props[0];
+		if (AMF_STRING != prop.type) {
+			status = RT_STATUS_INVALID_PARAMETER;
+			break;
+		}
+		val_t method = prop.value;
 		prop = obj.props[1];
 		if (prop.type != AMF_NUMBER) {
 			status = RT_STATUS_INVALID_PARAMETER;
 			break;
 		}
-		id = prop.number;
+		uint64_t id = prop.number;
+		LogD(TAG_RTMP, "invoke type = %s, invoke id = %d", method.value.c_str(), id);
 
-		// Method: _result
+		// Method - _result
 		if (AVMATCH(&method, &av__result)) {
 			val_t method_invoked = { 0, "" };
 
-			// Find cached invokes by id
 			std::vector<rtmp_invoke_t>::iterator iter;
 			for (iter = _context.invokes.begin(); iter != _context.invokes.end(); iter++) {
 				rtmp_invoke_t invoke = (*iter);
@@ -1113,48 +1118,43 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 				break;
 			}
 
-			// Response this invoke
+			// Method - _result - "connect"
 			if (AVMATCH(&method_invoked, &av_connect)) {
 				// Object begin
-				//     Property: <name, string>			// Prop 0	_result
-				//     Property: <name, number>			// Prop 1	0.00
-				//     Object begin						// Prop 2
-				//         Property: <name, string>					FMS/3,0,1,123
-				//         Property: <name, number>					31.00
+				//     Property: <name, string>			_result
+				//     Property: <name, number>			0.00
+				//     Object begin
+				//         Property: <name, string>		FMS/3,0,1,123
+				//         Property: <name, number>		31.00
 				//     Object end
-				//     Object begin						// Prop3
-				//         Property: <name, string>					status
-				//         Property: <name, string>					NetConnection.Connect.Success
-				//         Property: <name, string>					Connection succeeded.
-				//         Property: <name, number>					0.00
+				//     Object begin
+				//         Property: <name, string>		status
+				//         Property: <name, string>		NetConnection.Connect.Success
+				//         Property: <name, string>		Connection succeeded.
+				//         Property: <name, number>		0.00
 				//     Object end
 				// Object end
 
-				// Push mode...
 				_invoke_release_stream();
 				_invoke_fcpublish();
-
-				// Pull mode...
-				//RTMP_SendServerBW(r);
-				//RTMP_SendCtrl(r, 3, 0, 300);
-
 				_invoke_create_stream();
-
-				// Only pull mode...
-				// ...
 			}
+			// Method - _result - "createStream"
 			else if (AVMATCH(&method_invoked, &av_createStream)) {
+				// Object begin
+				//     Property: <name, string>			_result
+				//     Property: <name, number>			4.00
+				//     Property: null
+				//     Property: <name, number>			1.00
+				// Object end
+
 				prop = obj.props[3];
-				if (prop.type != AMF_NUMBER) {
+				if (AMF_NUMBER != prop.type) {
 					status = RT_STATUS_INVALID_PARAMETER;
 					break;
 				}
 				_context.stream_id = (uint32_t)prop.number;
-
-				// Push mode...
 				_invoke_publish();
-
-				// Pull mode...
 			}
 			else if (AVMATCH(&method_invoked, &av_play) || AVMATCH(&method_invoked, &av_publish)) {
 				_context.playing = true;
@@ -1198,10 +1198,21 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 		else if (AVMATCH(&method, &av_close)) {
 			//RTMP_Close(r);
 		}
-		// Method: onStatus
+		// Method - onStatus
 		else if (AVMATCH(&method, &av_onStatus)) {
+			// Object begin
+			//     Property: <name, string>			onStatus
+			//     Property: <name, number>			0.00
+			//     null
+			//     Object begin
+			//         Property: <name, string>		level, status
+			//         Property: <name, string>		code, NetStream.Publish.Start
+			//         Property: <name, string>		description, Start publishing
+			//     Object end
+			// Object end
+
 			prop = obj.props[3];
-			if (prop.type != AMF_OBJECT) {
+			if (AMF_OBJECT != prop.type) {
 				status = RT_STATUS_INVALID_PARAMETER;
 				break;
 			}
@@ -1216,13 +1227,16 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 				}
 			}
 
+			// Method - onStatus - "NetStream.Failed"/"NetStream.Play.Failed"/"NetStream.Play.StreamNotFound"/
+			// "NetConnection.Connect.InvalidApp"
 			if (AVMATCH(&code, &av_NetStream_Failed)
 				|| AVMATCH(&code, &av_NetStream_Play_Failed)
 				|| AVMATCH(&code, &av_NetStream_Play_StreamNotFound)
 				|| AVMATCH(&code, &av_NetConnection_Connect_InvalidApp)) {
-				_context.stream_id = 0;
-				//RTMP_Close(r);
+				status = RT_STATUS_REQUIRED_CLOSE;
+				disconnect();
 			}
+			// Method - onStatus - "NetStream.Play.Start"/"NetStream.Play.PublishNotify"
 			else if (AVMATCH(&code, &av_NetStream_Play_Start)
 				|| AVMATCH(&code, &av_NetStream_Play_PublishNotify)) {
 				_context.playing = true;
@@ -1235,6 +1249,7 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 					}
 				}
 			}
+			// Method - onStatus - "NetStream.Publish.Start"
 			else if (AVMATCH(&code, &av_NetStream_Publish_Start)) {
 				_context.playing = true;
 				std::vector<rtmp_invoke_t>::iterator iter;
@@ -1246,15 +1261,18 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 					}
 				}
 			}
-			// Return 1 if this is a Play.Complete or Play.Stop
+			// Method - onStatus - "NetStream.Play.Complete"/"NetStream.Play.Stop"/"NetStream.Play.UnpublishNotify"
 			else if (AVMATCH(&code, &av_NetStream_Play_Complete)
 				|| AVMATCH(&code, &av_NetStream_Play_Stop)
 				|| AVMATCH(&code, &av_NetStream_Play_UnpublishNotify)) {
-				//RTMP_Close(r);
+				status = RT_STATUS_REQUIRED_CLOSE;
+				disconnect();
 			}
+			// Method - onStatus - "NetStream.Seek.Notify"
 			else if (AVMATCH(&code, &av_NetStream_Seek_Notify)) {
 				//r->m_read.flags &= ~RTMP_READ_SEEKING;
 			}
+			// Method - onStatus - "NetStream.Pause.Notify"
 			else if (AVMATCH(&code, &av_NetStream_Pause_Notify)) {
 				//if (r->m_pausing == 1 || r->m_pausing == 2)
 				//{
@@ -1298,35 +1316,35 @@ rt_status_t CRTMPClient::_handle_packet(rtmp_packet_t *pkt_ptr)
 	//case RTMP_MSG_TYPE_RESERVED00:
 	//	break;
 	case RTMP_MSG_TYPE_CHUNK_SIZE:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_CHUNK_SIZE");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_CHUNK_SIZE");
 		status = _handle_chunk_size(pkt_ptr);
 		break;
 	//case RTMP_MSG_TYPE_RESERVED02:
 	//	break;
 	case RTMP_MSG_TYPE_BYTES_READ_REPORT:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_BYTES_READ_REPORT");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_BYTES_READ_REPORT");
 		status = _handle_bytes_read_report(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_CONTROL:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_CONTROL");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_CONTROL");
 		status = _handle_control(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_SERVER_BW:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_SERVER_BW");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_SERVER_BW");
 		status = _handle_server_bw(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_CLIENT_BW:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_CLIENT_BW");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_CLIENT_BW");
 		status = _handle_client_bw(pkt_ptr);
 		break;
 	//case RTMP_MSG_TYPE_RESERVED07:
 	//	break;
 	case RTMP_MSG_TYPE_AUDIO:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_AUDIO");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_AUDIO");
 		status = _handle_audio(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_VIDEO:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_VIDEO");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_VIDEO");
 		status = _handle_video(pkt_ptr);
 		break;
 	//case RTMP_MSG_TYPE_RESERVED0A:
@@ -1340,37 +1358,37 @@ rt_status_t CRTMPClient::_handle_packet(rtmp_packet_t *pkt_ptr)
 	//case RTMP_MSG_TYPE_RESERVED0E:
 	//	break;
 	case RTMP_MSG_TYPE_FLEX_STREAM_SEND:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_FLEX_STREAM_SEND");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_FLEX_STREAM_SEND");
 		status = _handle_flex_stream_send(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_FLEX_SHARED_OBJECT:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_FLEX_SHARED_OBJECT");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_FLEX_SHARED_OBJECT");
 		status = _handle_flex_shared_object(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_FLEX_MESSAGE:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_FLEX_MESSAGE");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_FLEX_MESSAGE");
 		status = _handle_flex_message(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_INFO:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_INFO");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_INFO");
 		status = _handle_info(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_SHARED_OBJECT:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_SHARED_OBJECT");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_SHARED_OBJECT");
 		status = _handle_shared_object(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_INVOKE:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_INVOKE");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_INVOKE");
 		status = _handle_invoke(pkt_ptr);
 		break;
 	//case RTMP_MSG_TYPE_RESERVED15:
 	//	break;
 	case RTMP_MSG_TYPE_FLASH_VIDEO:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_FLASH_VIDEO");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "RTMP_MSG_TYPE_FLASH_VIDEO");
 		status = _handle_flash_video(pkt_ptr);
 		break;
 	default:
-		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "UNKNOWN");
+		LogD(TAG_RTMP, "%s - %s", __FUNCTION__, "UNKNOWN");
 		status = RT_STATUS_INVALID_PARAMETER;
 		break;
 	}

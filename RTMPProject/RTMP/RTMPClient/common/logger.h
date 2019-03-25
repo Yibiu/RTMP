@@ -8,7 +8,6 @@
 
 
 #define TAG_AMF				"AMF"
-#define TAG_SOCKET			"SOCKET"
 #define TAG_RTMP			"RTMP"
 
 #define LOGGER_FIEL			"./rtmp.log"

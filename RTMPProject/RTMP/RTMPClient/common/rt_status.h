@@ -20,6 +20,7 @@ typedef enum _rt_status
 	RT_STATUS_SOCKET_ERR,
 	RT_STATUS_SOCKET_SEND,
 	RT_STATUS_SOCKET_RECV,
+	RT_STATUS_REQUIRED_CLOSE, // Remote require to close
 	RT_STATUS_ERROR_MAX
 } rt_status_t;
 
