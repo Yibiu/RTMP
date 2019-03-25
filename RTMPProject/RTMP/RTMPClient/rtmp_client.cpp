@@ -9,6 +9,20 @@ AVDEF(flashVer);
 AVDEF(swfUrl);
 AVDEF(tcUrl);
 AVDEF(objectEncoding);
+AVDEF(code);
+AVDEF(level);
+static const val_t av_NetStream_Failed = AVINIT("NetStream.Failed");
+static const val_t av_NetStream_Play_Failed = AVINIT("NetStream.Play.Failed");
+static const val_t av_NetStream_Play_StreamNotFound = AVINIT("NetStream.Play.StreamNotFound");
+static const val_t av_NetConnection_Connect_InvalidApp = AVINIT("NetConnection.Connect.InvalidApp");
+static const val_t av_NetStream_Play_Start = AVINIT("NetStream.Play.Start");
+static const val_t av_NetStream_Play_PublishNotify = AVINIT("NetStream.Play.PublishNotify");
+static const val_t av_NetStream_Publish_Start = AVINIT("NetStream.Publish.Start");
+static const val_t av_NetStream_Play_Complete = AVINIT("NetStream.Play.Complete");
+static const val_t av_NetStream_Play_Stop = AVINIT("NetStream.Play.Stop");
+static const val_t av_NetStream_Play_UnpublishNotify = AVINIT("NetStream.Play.UnpublishNotify");
+static const val_t av_NetStream_Seek_Notify = AVINIT("NetStream.Seek.Notify");
+static const val_t av_NetStream_Pause_Notify = AVINIT("NetStream.Pause.Notify");
 
 // Invoke
 AVDEF(connect);
@@ -19,6 +33,9 @@ AVDEF(set_playlist);
 AVDEF(releaseStream);
 AVDEF(FCPublish);
 AVDEF(createStream);
+AVDEF(live);
+AVDEF(FCUnpublish);
+AVDEF(deleteStream);
 
 // Method
 AVDEF(_result);
@@ -205,7 +222,199 @@ rt_status_t CRTMPClient::connect(uint32_t timeout_secs)
 
 void CRTMPClient::disconnect()
 {
+	if (-1 != _context.socket) {
+		if (_context.stream_id > 0) {
+			_invoke_fcunpublish();
+			_invoke_delete_stream();
+			_context.stream_id = 0;
+		}
+		closesocket(_context.socket);
+		_context.socket = -1;
+	}
+}
 
+rt_status_t CRTMPClient::send_medadata(const rtmp_metadata_t &meta)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	if (-1 == _context.socket || !_context.playing) {
+		status = RT_STATUS_UNINITIALIZED;
+		return status;
+	}
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_OVER_CONNECTION2;
+	packet.msg_type = RTMP_MSG_TYPE_INFO;
+	packet.msg_stream_id = _context.stream_id; // Current stream id
+	packet.timestamp = 0;
+
+	uint8_t buffer[4096];
+	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
+
+	/////////////////////////////////////////////
+	// Send media info
+	uint8_t *ptr = packet.data_ptr;
+	ptr = amf_encode_string(ptr, AVINIT("@setDataFrame"));
+	ptr = amf_encode_string(ptr, AVINIT("onMetaData"));
+	*ptr++ = AMF_OBJECT;
+	ptr = amf_encode_named_string(ptr, AVINIT("copyright"), AVINIT("firehood"));
+	ptr = amf_encode_named_number(ptr, AVINIT("width"), meta.width);
+	ptr = amf_encode_named_number(ptr, AVINIT("height"), meta.height);
+	ptr = amf_encode_named_number(ptr, AVINIT("framerate"), meta.fps);
+	ptr = amf_encode_named_number(ptr, AVINIT("videodatarate"), meta.bitrate_kpbs);
+	ptr = amf_encode_named_number(ptr, AVINIT("videocodecid"), 7); // 7:AVC(H264)
+	if (meta.has_audio) {
+		ptr = amf_encode_named_number(ptr, AVINIT("audiodatarate"), meta.datarate);
+		ptr = amf_encode_named_number(ptr, AVINIT("audiosamplerate"), meta.samplerate);
+		ptr = amf_encode_named_number(ptr, AVINIT("audiosamplesize"), meta.samples_per_frame);
+		ptr = amf_encode_named_number(ptr, AVINIT("stereo"), meta.channels);
+		ptr = amf_encode_named_number(ptr, AVINIT("audiocodecid"), 10); // 10:AAC
+	}
+	*ptr++ = 0x00;
+	*ptr++ = 0x00;
+	*ptr++ = AMF_OBJECT_END;
+	packet.size = 4096;
+	packet.valid = ptr - packet.data_ptr;
+	status = _send_packet(&packet, false);
+	if (!rt_is_success(status)) {
+		return status;
+	}
+
+	/////////////////////////////////////////////
+	// Send decode info
+	ptr = packet.data_ptr;
+	*ptr++ = 0x17;
+	*ptr++ = 0x00;
+	*ptr++ = 0x00;
+	*ptr++ = 0x00;
+	*ptr++ = 0x00;
+	// AVCDecoderConfiguration  
+	*ptr++ = 0x01;
+	*ptr++ = meta.param.data_sps[1];
+	*ptr++ = meta.param.data_sps[2];
+	*ptr++ = meta.param.data_sps[3];
+	*ptr++ = 0xff;
+	// SPS
+	*ptr++ = 0xE1;
+	*ptr++ = meta.param.size_sps >> 8;
+	*ptr++ = meta.param.size_sps & 0xff;
+	memcpy(ptr, meta.param.data_sps, meta.param.size_sps);
+	ptr += meta.param.size_sps;
+	// PPS
+	*ptr++ = 0x01;
+	*ptr++ = meta.param.size_pps >> 8;
+	*ptr++ = meta.param.size_pps & 0xff;
+	memcpy(ptr, meta.param.data_pps, meta.param.size_pps);
+	ptr += meta.param.size_pps;
+	packet.msg_type = RTMP_MSG_TYPE_VIDEO;
+	packet.valid = ptr - packet.data_ptr;
+	status = _send_packet(&packet, false);
+	if (!rt_is_success(status)) {
+		return status;
+	}
+
+	return status;
+}
+
+rt_status_t CRTMPClient::send_video(uint32_t size, const uint8_t *data_ptr, uint64_t pts, bool keyframe)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	if (-1 == _context.socket || !_context.playing) {
+		status = RT_STATUS_UNINITIALIZED;
+		return status;
+	}
+	if (0 == size) {
+		return status;
+	}
+	else if (NULL == data_ptr) {
+		status = RT_STATUS_INVALID_PARAMETER;
+		return status;
+	}
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_OVER_CONNECTION2;
+	packet.msg_type = RTMP_MSG_TYPE_VIDEO;
+	packet.msg_stream_id = _context.stream_id; // Current stream id
+	packet.timestamp = pts;
+
+	packet.size = size + RTMP_MAX_HEADER_SIZE * 2;
+	uint8_t *reserved_ptr = new uint8_t[packet.size];
+	if (NULL == reserved_ptr) {
+		status = RT_STATUS_MEMORY_ALLOCATE;
+		return status;
+	}
+	packet.data_ptr = reserved_ptr + RTMP_MAX_HEADER_SIZE;
+
+	uint8_t *ptr = packet.data_ptr;
+	if (keyframe) {
+		*ptr++ = 0x17;
+	}
+	else {
+		*ptr++ = 0x27;
+	}
+	*ptr++ = 0x01;
+	*ptr++ = 0x00;
+	*ptr++ = 0x00;
+	*ptr++ = 0x00;
+	*ptr++ = size >> 24;
+	*ptr++ = size >> 16;
+	*ptr++ = size >> 8;
+	*ptr++ = size & 0xff;
+	memcpy(ptr, data_ptr, size);
+	ptr += size;
+	packet.valid = ptr - packet.data_ptr;
+	status = _send_packet(&packet, false);
+
+	delete[] reserved_ptr;
+
+	return status;
+}
+
+rt_status_t CRTMPClient::send_audio(uint32_t size, const uint8_t *data_ptr, uint64_t pts)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	if (-1 == _context.socket || !_context.playing) {
+		status = RT_STATUS_UNINITIALIZED;
+		return status;
+	}
+	if (0 == size) {
+		return status;
+	}
+	else if (NULL == data_ptr) {
+		status = RT_STATUS_INVALID_PARAMETER;
+		return status;
+	}
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_OVER_CONNECTION2;
+	packet.msg_type = RTMP_MSG_TYPE_AUDIO;
+	packet.msg_stream_id = _context.stream_id; // Current stream id
+	packet.timestamp = pts;
+
+	packet.size = size + RTMP_MAX_HEADER_SIZE * 2;
+	uint8_t *reserved_ptr = new uint8_t[packet.size];
+	if (NULL == reserved_ptr) {
+		status = RT_STATUS_MEMORY_ALLOCATE;
+		return status;
+	}
+	packet.data_ptr = reserved_ptr + RTMP_MAX_HEADER_SIZE;
+
+	uint8_t *ptr = packet.data_ptr;
+	*ptr++ = 0xAF;
+	*ptr++ = 0x01;
+	memcpy(ptr, data_ptr, size);
+	ptr += size;
+	packet.valid = ptr - packet.data_ptr;
+	status = _send_packet(&packet, false);
+
+	delete[] reserved_ptr;
+
+	return status;
 }
 
 
@@ -500,6 +709,81 @@ rt_status_t CRTMPClient::_invoke_create_stream()
 	packet.valid = ptr - packet.data_ptr;
 
 	return _send_packet(&packet, true);
+}
+
+rt_status_t CRTMPClient::_invoke_publish()
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_OVER_CONNECTION2;
+	packet.msg_type = RTMP_MSG_TYPE_INVOKE;
+	packet.msg_stream_id = _context.stream_id; // Because of has stream now
+	packet.timestamp = 0;
+
+	uint8_t buffer[4096];
+	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
+	uint8_t *ptr = packet.data_ptr;
+	ptr = amf_encode_string(ptr, av_publish);
+	ptr = amf_encode_number(ptr, ++_context.invoke_ids);
+	*ptr++ = AMF_NULL;
+	val_t playpath = { _context.link.stream.length(), _context.link.stream };
+	ptr = amf_encode_string(ptr, playpath);
+	ptr = amf_encode_string(ptr, av_live);
+	packet.size = 4096;
+	packet.valid = ptr - packet.data_ptr;
+
+	return _send_packet(&packet, true);
+}
+
+rt_status_t CRTMPClient::_invoke_fcunpublish()
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_OVER_CONNECTION;
+	packet.msg_type = RTMP_MSG_TYPE_INVOKE;
+	packet.msg_stream_id = _context.stream_id; // 0 or current stream id?
+	packet.timestamp = 0;
+
+	uint8_t buffer[4096];
+	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
+	uint8_t *ptr = packet.data_ptr;
+	ptr = amf_encode_string(ptr, av_FCUnpublish);
+	ptr = amf_encode_number(ptr, ++_context.invoke_ids);
+	*ptr++ = AMF_NULL;
+	val_t playpath = { _context.link.stream.length(), _context.link.stream };
+	ptr = amf_encode_string(ptr, playpath);
+	packet.size = 4096;
+	packet.valid = ptr - packet.data_ptr;
+
+	return _send_packet(&packet, false);
+}
+
+rt_status_t CRTMPClient::_invoke_delete_stream()
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_OVER_CONNECTION;
+	packet.msg_type = RTMP_MSG_TYPE_INVOKE;
+	packet.msg_stream_id = _context.stream_id; // 0 or current stream id?
+	packet.timestamp = 0;
+
+	uint8_t buffer[4096];
+	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
+	uint8_t *ptr = packet.data_ptr;
+	ptr = amf_encode_string(ptr, av_deleteStream);
+	ptr = amf_encode_number(ptr, ++_context.invoke_ids);
+	*ptr++ = AMF_NULL;
+	ptr = amf_encode_number(ptr, _context.stream_id);
+	packet.size = 4096;
+	packet.valid = ptr - packet.data_ptr;
+
+	return _send_packet(&packet, false);
 }
 
 rt_status_t CRTMPClient::_handle_chunk_size(rtmp_packet_t *pkt_ptr)
@@ -803,7 +1087,7 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 		if (AVMATCH(&method, &av__result)) {
 			val_t method_invoked = { 0, "" };
 
-			// Find cached invokes
+			// Find cached invokes by id
 			std::vector<rtmp_invoke_t>::iterator iter;
 			for (iter = _context.invokes.begin(); iter != _context.invokes.end(); iter++) {
 				rtmp_invoke_t invoke = (*iter);
@@ -858,7 +1142,7 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 				_context.stream_id = (uint32_t)prop.number;
 
 				// Push mode...
-				//SendPublish(r);
+				_invoke_publish();
 
 				// Pull mode...
 			}
@@ -906,76 +1190,68 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 		}
 		// Method: onStatus
 		else if (AVMATCH(&method, &av_onStatus)) {
-			/*
-			AMFObject obj2;
-			AVal code, level;
-			AMFProp_GetObject(AMF_GetProp(&obj, NULL, 3), &obj2);
-			AMFProp_GetString(AMF_GetProp(&obj2, &av_code, -1), &code);
-			AMFProp_GetString(AMF_GetProp(&obj2, &av_level, -1), &level);
+			prop = obj.props[3];
+			if (prop.type != AMF_OBJECT) {
+				status = RT_STATUS_INVALID_PARAMETER;
+				break;
+			}
+			amf_object_t obj2 = prop.object;
+			val_t code, level;
+			for (uint32_t i = 0; i < obj2.num; i++) {
+				if (0 == obj2.props[i].name.value.compare(av_code.value)) {
+					code = obj2.props[i].value;
+				}
+				else if (0 == obj2.props[i].name.value.compare(av_level.value)) {
+					level = obj2.props[i].value;
+				}
+			}
 
-			RTMP_Log(RTMP_LOGDEBUG, "%s, onStatus: %s", __FUNCTION__, code.av_val);
 			if (AVMATCH(&code, &av_NetStream_Failed)
 				|| AVMATCH(&code, &av_NetStream_Play_Failed)
 				|| AVMATCH(&code, &av_NetStream_Play_StreamNotFound)
-				|| AVMATCH(&code, &av_NetConnection_Connect_InvalidApp))
-			{
-				r->m_stream_id = -1;
-				RTMP_Close(r);
-				RTMP_Log(RTMP_LOGERROR, "Closing connection: %s", code.av_val);
+				|| AVMATCH(&code, &av_NetConnection_Connect_InvalidApp)) {
+				_context.stream_id = 0;
+				//RTMP_Close(r);
 			}
-
 			else if (AVMATCH(&code, &av_NetStream_Play_Start)
-				|| AVMATCH(&code, &av_NetStream_Play_PublishNotify))
-			{
-				int i;
-				r->m_bPlaying = TRUE;
-				for (i = 0; i < r->m_numCalls; i++)
-				{
-					if (AVMATCH(&r->m_methodCalls[i].name, &av_play))
-					{
-						AV_erase(r->m_methodCalls, &r->m_numCalls, i, TRUE);
+				|| AVMATCH(&code, &av_NetStream_Play_PublishNotify)) {
+				_context.playing = true;
+				std::vector<rtmp_invoke_t>::iterator iter;
+				for (iter = _context.invokes.begin(); iter != _context.invokes.end(); iter++) {
+					rtmp_invoke_t invoke = (*iter);
+					if (0 == invoke.invoke.compare(av_play.value)) {
+						_context.invokes.erase(iter);
 						break;
 					}
 				}
 			}
-
-			else if (AVMATCH(&code, &av_NetStream_Publish_Start))
-			{
-				int i;
-				r->m_bPlaying = TRUE;
-				for (i = 0; i < r->m_numCalls; i++)
-				{
-					if (AVMATCH(&r->m_methodCalls[i].name, &av_publish))
-					{
-						AV_erase(r->m_methodCalls, &r->m_numCalls, i, TRUE);
+			else if (AVMATCH(&code, &av_NetStream_Publish_Start)) {
+				_context.playing = true;
+				std::vector<rtmp_invoke_t>::iterator iter;
+				for (iter = _context.invokes.begin(); iter != _context.invokes.end(); iter++) {
+					rtmp_invoke_t invoke = (*iter);
+					if (0 == invoke.invoke.compare(av_publish.value)) {
+						_context.invokes.erase(iter);
 						break;
 					}
 				}
 			}
-
 			// Return 1 if this is a Play.Complete or Play.Stop
 			else if (AVMATCH(&code, &av_NetStream_Play_Complete)
 				|| AVMATCH(&code, &av_NetStream_Play_Stop)
-				|| AVMATCH(&code, &av_NetStream_Play_UnpublishNotify))
-			{
-				RTMP_Close(r);
-				ret = 1;
+				|| AVMATCH(&code, &av_NetStream_Play_UnpublishNotify)) {
+				//RTMP_Close(r);
 			}
-
-			else if (AVMATCH(&code, &av_NetStream_Seek_Notify))
-			{
-				r->m_read.flags &= ~RTMP_READ_SEEKING;
+			else if (AVMATCH(&code, &av_NetStream_Seek_Notify)) {
+				//r->m_read.flags &= ~RTMP_READ_SEEKING;
 			}
-
-			else if (AVMATCH(&code, &av_NetStream_Pause_Notify))
-			{
-				if (r->m_pausing == 1 || r->m_pausing == 2)
-				{
-					RTMP_SendPause(r, FALSE, r->m_pauseStamp);
-					r->m_pausing = 3;
-				}
+			else if (AVMATCH(&code, &av_NetStream_Pause_Notify)) {
+				//if (r->m_pausing == 1 || r->m_pausing == 2)
+				//{
+				//	RTMP_SendPause(r, FALSE, r->m_pauseStamp);
+				//	r->m_pausing = 3;
+				//}
 			}
-			*/
 		}
 		// Method: playlist_ready
 		else if (AVMATCH(&method, &av_playlist_ready)) {
@@ -1012,28 +1288,35 @@ rt_status_t CRTMPClient::_handle_packet(rtmp_packet_t *pkt_ptr)
 	//case RTMP_MSG_TYPE_RESERVED00:
 	//	break;
 	case RTMP_MSG_TYPE_CHUNK_SIZE:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_CHUNK_SIZE");
 		status = _handle_chunk_size(pkt_ptr);
 		break;
 	//case RTMP_MSG_TYPE_RESERVED02:
 	//	break;
 	case RTMP_MSG_TYPE_BYTES_READ_REPORT:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_BYTES_READ_REPORT");
 		status = _handle_bytes_read_report(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_CONTROL:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_CONTROL");
 		status = _handle_control(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_SERVER_BW:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_SERVER_BW");
 		status = _handle_server_bw(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_CLIENT_BW:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_CLIENT_BW");
 		status = _handle_client_bw(pkt_ptr);
 		break;
 	//case RTMP_MSG_TYPE_RESERVED07:
 	//	break;
 	case RTMP_MSG_TYPE_AUDIO:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_AUDIO");
 		status = _handle_audio(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_VIDEO:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_VIDEO");
 		status = _handle_video(pkt_ptr);
 		break;
 	//case RTMP_MSG_TYPE_RESERVED0A:
@@ -1047,29 +1330,37 @@ rt_status_t CRTMPClient::_handle_packet(rtmp_packet_t *pkt_ptr)
 	//case RTMP_MSG_TYPE_RESERVED0E:
 	//	break;
 	case RTMP_MSG_TYPE_FLEX_STREAM_SEND:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_FLEX_STREAM_SEND");
 		status = _handle_flex_stream_send(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_FLEX_SHARED_OBJECT:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_FLEX_SHARED_OBJECT");
 		status = _handle_flex_shared_object(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_FLEX_MESSAGE:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_FLEX_MESSAGE");
 		status = _handle_flex_message(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_INFO:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_INFO");
 		status = _handle_info(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_SHARED_OBJECT:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_SHARED_OBJECT");
 		status = _handle_shared_object(pkt_ptr);
 		break;
 	case RTMP_MSG_TYPE_INVOKE:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_INVOKE");
 		status = _handle_invoke(pkt_ptr);
 		break;
 	//case RTMP_MSG_TYPE_RESERVED15:
 	//	break;
 	case RTMP_MSG_TYPE_FLASH_VIDEO:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "RTMP_MSG_TYPE_FLASH_VIDEO");
 		status = _handle_flash_video(pkt_ptr);
 		break;
 	default:
+		LogD(TAG_RTMP, "%s[%d] - %s", __FUNCTION__, __LINE__, "UNKNOWN");
 		status = RT_STATUS_INVALID_PARAMETER;
 		break;
 	}

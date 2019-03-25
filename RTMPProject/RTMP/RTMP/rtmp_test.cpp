@@ -448,7 +448,7 @@ bool CRTMPTest::_send_video(uint32_t size, const uint8_t *data_ptr, uint64_t pts
 		return false;
 
 	RTMPPacket packet;
-	RTMPPacket_Alloc(&packet, size + RTMP_RESERVED_HEAD_SIZE);
+	RTMPPacket_Alloc(&packet, size + RTMP_RESERVED_HEAD_SIZE * 2);
 	RTMPPacket_Reset(&packet);
 	packet.m_packetType = RTMP_PACKET_TYPE_VIDEO;
 	packet.m_nChannel = 0x04;
@@ -486,7 +486,7 @@ bool CRTMPTest::_send_audio(uint32_t size, const uint8_t *data_ptr, uint64_t pts
 		return false;
 
 	RTMPPacket packet;
-	RTMPPacket_Alloc(&packet, size + 2);
+	RTMPPacket_Alloc(&packet, size + RTMP_RESERVED_HEAD_SIZE * 2);
 	RTMPPacket_Reset(&packet);
 	packet.m_packetType = RTMP_PACKET_TYPE_AUDIO;
 	packet.m_nChannel = 0x04;

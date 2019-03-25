@@ -14,6 +14,7 @@ int main(int argc, char *argv[])
 		CLogger::get_instance()->add_level(CLogger::LOG_LEVEL_WARNING);
 		CLogger::get_instance()->add_level(CLogger::LOG_LEVEL_ERROR);
 		CLogger::get_instance()->add_tag(TAG_AMF);
+		CLogger::get_instance()->add_tag(TAG_RTMP);
 		CLogger::get_instance()->open_console();
 
 		status = client.create("rtmp://192.168.0.100:1935/live/stream");

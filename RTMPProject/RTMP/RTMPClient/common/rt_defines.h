@@ -160,6 +160,33 @@ typedef struct _rtmp_context
 } rtmp_context_t;
 
 
+#define H264_PARAM_LEN		128
+typedef struct _h264_param
+{
+	uint32_t size_sps;
+	uint8_t	data_sps[H264_PARAM_LEN];
+	uint32_t size_pps;
+	uint8_t	data_pps[H264_PARAM_LEN];
+} h264_param_t;
+
+typedef struct _rtmp_metadata
+{
+	// Video
+	uint32_t width;
+	uint32_t height;
+	uint32_t fps;
+	uint32_t bitrate_kpbs;
+	h264_param_t param;
+
+	// Audio
+	bool has_audio;
+	uint32_t channels;
+	uint32_t samplerate;
+	uint32_t samples_per_frame;
+	uint32_t datarate;
+} rtmp_metadata_t;
+
+
 static inline void rtmp_dump_packet(const rtmp_packet_t *pkt_ptr)
 {
 

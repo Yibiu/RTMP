@@ -18,6 +18,9 @@ public:
 	void destroy();
 	rt_status_t connect(uint32_t timeout_secs);
 	void disconnect();
+	rt_status_t send_medadata(const rtmp_metadata_t &meta);
+	rt_status_t send_video(uint32_t size, const uint8_t *data_ptr, uint64_t pts, bool keyframe);
+	rt_status_t send_audio(uint32_t size, const uint8_t *data_ptr, uint64_t pts);
 
 protected:
 	rt_status_t _init_network();
@@ -28,6 +31,9 @@ protected:
 	rt_status_t _invoke_release_stream();
 	rt_status_t _invoke_fcpublish();
 	rt_status_t _invoke_create_stream();
+	rt_status_t _invoke_publish();
+	rt_status_t _invoke_fcunpublish();
+	rt_status_t _invoke_delete_stream();
 
 	rt_status_t _handle_chunk_size(rtmp_packet_t *pkt_ptr);
 	rt_status_t _handle_bytes_read_report(rtmp_packet_t *pkt_ptr);
