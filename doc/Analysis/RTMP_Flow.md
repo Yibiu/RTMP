@@ -50,7 +50,7 @@ createStream		--------------->
 					<---------------		_result for createStream
 
 publish				--------------->
-					<---------------		NetStream.Publish.Start
+					<---------------		(onStatus)NetStream.Publish.Start
 					
 onMetaData			--------------->
 video data			--------------->
