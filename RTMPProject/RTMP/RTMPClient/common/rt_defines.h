@@ -47,6 +47,12 @@ typedef enum _rtmp_proto
 	RTMP_PROTOCOL_RTMPE = 0x02  // Not support yet
 } rtmp_proto_t;
 
+typedef enum _rtmp_mode
+{
+	RTMP_MODE_PUSHER = 0x00,
+	RTMP_MODE_PULLER
+} rtmp_mode_t;
+
 typedef enum _rtmp_msg_type
 {
 	RTMP_MSG_TYPE_RESERVED00 = 0x00,
@@ -126,6 +132,7 @@ typedef struct _rtmp_param
 	std::string flashVer;
 	std::string swfUrl;
 	std::string tcUrl;
+	std::string pageUrl; // Only for puller
 	uint64_t encoding; // AMF0 or AMF3
 	std::string auth;
 	//amf_object_t extras;
@@ -141,6 +148,7 @@ typedef struct _rtmp_context
 {
 	rtmp_link_t link;
 	rtmp_param_t params;
+	rtmp_mode_t mode;
 
 	int socket;
 	bool playing;

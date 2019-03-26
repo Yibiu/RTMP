@@ -11,6 +11,12 @@ AVDEF(tcUrl);
 AVDEF(objectEncoding);
 AVDEF(code);
 AVDEF(level);
+AVDEF(fpad);
+AVDEF(capabilities);
+AVDEF(audioCodecs);
+AVDEF(videoCodecs);
+AVDEF(videoFunction);
+AVDEF(pageUrl);
 static const val_t av_NetStream_Failed = AVINIT("NetStream.Failed");
 static const val_t av_NetStream_Play_Failed = AVINIT("NetStream.Play.Failed");
 static const val_t av_NetStream_Play_StreamNotFound = AVINIT("NetStream.Play.StreamNotFound");
@@ -68,6 +74,8 @@ CRTMPClient::CRTMPClient()
 	_context.params.tcUrl = "";
 	_context.params.encoding = 0;
 	_context.params.auth = "";
+
+	_context.mode = RTMP_MODE_PUSHER;
 
 	_context.socket = -1;
 	_context.playing = false;
@@ -240,7 +248,9 @@ void CRTMPClient::disconnect()
 {
 	if (-1 != _context.socket) {
 		if (_context.stream_id > 0) {
-			_invoke_fcunpublish();
+			if (_context.mode == RTMP_MODE_PUSHER) {
+				_invoke_fcunpublish();
+			}
 			_invoke_delete_stream();
 			_context.stream_id = 0;
 		}
@@ -634,7 +644,9 @@ rt_status_t CRTMPClient::_invoke_connect()
 	*ptr++ = AMF_OBJECT;
 	val_t app = { _context.link.app.length(), _context.link.app };
 	ptr = amf_encode_named_string(ptr, av_app, app);
-	ptr = amf_encode_named_string(ptr, av_type, av_nonprivate);
+	if (_context.mode == RTMP_MODE_PUSHER) {
+		ptr = amf_encode_named_string(ptr, av_type, av_nonprivate);
+	}
 	if (!_context.params.flashVer.empty()) {
 		val_t flashVer = { _context.params.flashVer.length(), _context.params.flashVer };
 		ptr = amf_encode_named_string(ptr, av_flashVer, flashVer);
@@ -646,6 +658,17 @@ rt_status_t CRTMPClient::_invoke_connect()
 	if (!_context.params.tcUrl.empty()) {
 		val_t tcUrl = { _context.params.tcUrl.length(), _context.params.tcUrl };
 		ptr = amf_encode_named_string(ptr, av_tcUrl, tcUrl);
+	}
+	if (_context.mode != RTMP_MODE_PUSHER) {
+		ptr = amf_encode_named_boolean(ptr, av_fpad, false);
+		ptr = amf_encode_named_number(ptr, av_capabilities, 15.0);
+		ptr = amf_encode_named_number(ptr, av_audioCodecs, 3191.0);
+		ptr = amf_encode_named_number(ptr, av_videoCodecs, 252.0);
+		ptr = amf_encode_named_number(ptr, av_videoFunction, 1.0);
+		if (!_context.params.pageUrl.empty()) {
+			val_t pageUrl = { _context.params.pageUrl.length(), _context.params.pageUrl };
+			ptr = amf_encode_named_string(ptr, av_pageUrl, pageUrl);
+		}
 	}
 	if (0 != _context.params.encoding) {
 		ptr = amf_encode_named_number(ptr, av_objectEncoding, _context.params.encoding);
@@ -1144,9 +1167,27 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 				//     Object end
 				// Object end
 
-				_invoke_release_stream();
-				_invoke_fcpublish();
+				if (_context.mode == RTMP_MODE_PUSHER) {
+					_invoke_release_stream();
+					_invoke_fcpublish();
+				}
+				else {
+					//RTMP_SendServerBW(r);
+					//RTMP_SendCtrl(r, 3, 0, 300);
+				}
+
 				_invoke_create_stream();
+
+				if (_context.mode != RTMP_MODE_PUSHER) {
+					// Authenticate on Justin.tv legacy servers before sending FCSubscribe
+					//if (r->Link.usherToken.av_len)
+					//	SendUsherToken(r, &r->Link.usherToken);
+					// Send the FCSubscribe if live stream or if subscribepath is set
+					//if (r->Link.subscribepath.av_len)
+					//	SendFCSubscribe(r, &r->Link.subscribepath);
+					//else if (r->Link.lFlags & RTMP_LF_LIVE)
+					//	SendFCSubscribe(r, &r->Link.playpath);
+				}
 			}
 			// Method - _result - "createStream"
 			else if (AVMATCH(&method_invoked, &av_createStream)) {
@@ -1163,7 +1204,14 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 					break;
 				}
 				_context.stream_id = (uint32_t)prop.number;
-				_invoke_publish();
+
+				if (_context.mode == RTMP_MODE_PUSHER) {
+					_invoke_publish();
+				}
+				else {
+					//SendPlay(r);
+					//RTMP_SendCtrl(r, 3, r->m_stream_id, r->m_nBufferMS);
+				}
 			}
 			else if (AVMATCH(&method_invoked, &av_play) || AVMATCH(&method_invoked, &av_publish)) {
 				_context.playing = true;
