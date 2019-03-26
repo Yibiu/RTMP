@@ -1,7 +1,7 @@
 #include "rtmp_test.h"
 
 
-int main()
+void test_pusher()
 {
 	CTestPusher pusher;
 
@@ -30,6 +30,35 @@ int main()
 	} while (false);
 	pusher.disconnect();
 	pusher.destroy();
+}
+
+
+void test_puller()
+{
+	CTestPuller puller;
+
+	do {
+		if (!puller.create("./puller.h264")) { // "./puller.flv"
+			printf("RTMP create error!\n");
+			break;
+		}
+		if (!puller.connect("rtmp://192.168.0.100:1935/live/stream", 5)) {
+			printf("RTMP connect error!\n");
+			break;
+		}
+
+		printf("ENTER to exit...\n");
+		getchar();
+	} while (false);
+	puller.disconnect();
+	puller.destroy();
+}
+
+
+int main()
+{
+	//test_pusher();
+	test_puller();
 
 	return 0;
 }

@@ -287,28 +287,28 @@ uint8_t* amf_encode_prop(uint8_t *ptr, const amf_object_property_t &prop)
 
 uint16_t amf_decode_u16(const uint8_t *ptr)
 {
-	uint16_t value = (ptr[0] << 8) | ptr[1];
+	uint16_t value = ((ptr[0] << 8) | (ptr[1] & 0xff));
 
 	return value;
 }
 
 uint32_t amf_decode_u24(const uint8_t *ptr)
 {
-	uint32_t value = (ptr[0] << 16) | (ptr[1] << 8) | ptr[2];
+	uint32_t value = ((ptr[0] << 16) | (ptr[1] << 8) | (ptr[2] & 0xff));
 
 	return value;
 }
 
 uint32_t amf_decode_u32(const uint8_t *ptr)
 {
-	uint32_t value = (ptr[0] << 24) | (ptr[1] << 16) | (ptr[2] << 8) | ptr[3];
+	uint32_t value = ((ptr[0] << 24) | (ptr[1] << 16) | (ptr[2] << 8) | (ptr[3] & 0xff));
 
 	return value;
 }
 
 uint32_t amf_decode_u32le(const uint8_t *ptr)
 {
-	uint32_t value = (ptr[3] << 24) | (ptr[2] << 16) | (ptr[1] << 8) | ptr[0];
+	uint32_t value = ((ptr[3] << 24) | (ptr[2] << 16) | (ptr[1] << 8) | (ptr[0] & 0xff));
 
 	return value;
 }

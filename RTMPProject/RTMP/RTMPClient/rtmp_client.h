@@ -7,6 +7,13 @@
 /**
 * @brief:
 * RTMP client
+*
+* FLV Frames: flv header + flv data
+*
+* RTMP Frames: RTMP chunk header + flv data
+*
+* The FLV header is preplaced with rtmp chunk header, so ignore FLV header before frames!!!
+* FLV reference:https://blog.csdn.net/byxdaz/article/details/53993791
 */
 class CRTMPClient
 {

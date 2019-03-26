@@ -299,6 +299,10 @@ rt_status_t CRTMPClient::send_medadata(const rtmp_metadata_t &meta)
 
 	/////////////////////////////////////////////
 	// Send decode info
+	// FLV video sequence format:
+	// Frame type(4 bits) + codecID(4 bits) + AVCPacketType(1 bytes) + CompositionTime
+	//	+ AVCDecoderConfiguration
+	//
 	ptr = packet.data_ptr;
 	*ptr++ = 0x17;
 	*ptr++ = 0x00;
@@ -364,6 +368,11 @@ rt_status_t CRTMPClient::send_video(uint32_t size, const uint8_t *data_ptr, uint
 	}
 	packet.data_ptr = reserved_ptr + RTMP_MAX_HEADER_SIZE;
 
+	//
+	// FLV video nalu format:
+	// Frame type(4 bits) + codecID(4 bits) + AVCPacketType(1 bytes) + CompositionTime
+	//	+ Nalu
+	//
 	uint8_t *ptr = packet.data_ptr;
 	if (keyframe) {
 		*ptr++ = 0x17;

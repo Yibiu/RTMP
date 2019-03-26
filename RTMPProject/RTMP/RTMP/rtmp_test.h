@@ -105,3 +105,44 @@ protected:
 	FILE *_file_ptr;
 #endif
 };
+
+
+/**
+* @brief:
+* Test class for rtmp puller
+* 
+* Frames from server --> puller --> local file
+*/
+class CTestPuller
+{
+public:
+	CTestPuller();
+	virtual ~CTestPuller();
+
+	bool create(const char *path_ptr);
+	void destroy();
+	bool connect(const char *url_ptr, uint32_t timeout_secs);
+	void disconnect();
+
+	static void thread_proc(void *param)
+	{
+		CTestPuller *this_ptr = (CTestPuller *)param;
+		if (NULL != this_ptr)
+			this_ptr->thread_proc_internal();
+	}
+	void thread_proc_internal();
+
+protected:
+	bool _init_sockets();
+	void _cleanup_sockets();
+
+protected:
+	RTMP *_rtmp_ptr;
+	bool _running;
+	std::thread *_thread_ptr;
+
+	uint32_t _buffer_size;
+	uint8_t *_buffer_ptr;
+	FILE *_file_ptr;
+};
+

@@ -407,6 +407,10 @@ bool CTestPusher::_send_metadata(const rtmp_metadata_t &metadata)
 
 	/////////////////////////////////////////////
 	// Send decode info
+	// FLV video sequence format:
+	// Frame type(4 bits) + codecID(4 bits) + AVCPacketType(1 bytes) + CompositionTime
+	//	+ AVCDecoderConfiguration
+	//
 	uint32_t offset = 0;
 	packet.m_body[offset++] = 0x17;
 	packet.m_body[offset++] = 0x00;
@@ -507,6 +511,297 @@ bool CTestPusher::_send_audio(uint32_t size, const uint8_t *data_ptr, uint64_t p
 	RTMPPacket_Free(&packet);
 	return true;
 }
+
+
+// CTestPuller
+CTestPuller::CTestPuller()
+{
+	_rtmp_ptr = NULL;
+	_running = false;
+	_thread_ptr = NULL;
+
+	_buffer_size = 0;
+	_buffer_ptr = NULL;
+	_file_ptr = NULL;
+}
+
+CTestPuller::~CTestPuller()
+{
+}
+
+bool CTestPuller::create(const char *path_ptr)
+{
+	bool success = false;
+
+	do {
+		if (NULL == path_ptr)
+			break;
+
+		if (!_init_sockets())
+			break;
+
+		_rtmp_ptr = RTMP_Alloc();
+		if (NULL == _rtmp_ptr)
+			break;
+		RTMP_Init(_rtmp_ptr);
+
+		_buffer_size = 2 * 1024 * 1024; // 2MB
+		_buffer_ptr = new uint8_t[_buffer_size];
+		if (NULL == _buffer_ptr)
+			break;
+		_file_ptr = fopen(path_ptr, "wb+");
+		if (NULL == _file_ptr)
+			break;
+
+		success = true;
+	} while (false);
+
+	if (!success) {
+		destroy();
+	}
+
+	return success;
+}
+
+void CTestPuller::destroy()
+{
+	if (NULL != _rtmp_ptr) {
+		RTMP_Free(_rtmp_ptr);
+		_rtmp_ptr = NULL;
+	}
+	if (NULL != _buffer_ptr) {
+		delete[] _buffer_ptr;
+		_buffer_ptr = NULL;
+	}
+	_buffer_size = 0;
+	if (NULL != _file_ptr) {
+		fclose(_file_ptr);
+		_file_ptr = NULL;
+	}
+	_cleanup_sockets();
+}
+
+bool CTestPuller::connect(const char *url_ptr, uint32_t timeout_secs)
+{
+	bool success = false;
+
+	do {
+		_rtmp_ptr->Link.timeout = timeout_secs;
+		_rtmp_ptr->Link.lFlags |= RTMP_LF_LIVE;
+		if (RTMP_SetupURL(_rtmp_ptr, (char *)url_ptr) < 0)
+			break;
+
+		RTMP_SetBufferMS(_rtmp_ptr, 2 * 1024 * 1024); // 2MB
+		if (RTMP_Connect(_rtmp_ptr, NULL) < 0)
+			break;
+		if (RTMP_ConnectStream(_rtmp_ptr, 0) < 0)
+			break;
+
+		_running = true;
+		_thread_ptr = new std::thread(thread_proc, this);
+		if (NULL == _thread_ptr)
+			break;
+
+		success = true;
+	} while (false);
+
+	if (!success) {
+		disconnect();
+	}
+
+	return success;
+}
+
+void CTestPuller::disconnect()
+{
+	_running = false;
+	if (NULL != _thread_ptr) {
+		_thread_ptr->join();
+		delete _thread_ptr;
+		_thread_ptr = NULL;
+	}
+	if (NULL != _rtmp_ptr) {
+		RTMP_Close(_rtmp_ptr);
+	}
+}
+
+void CTestPuller::thread_proc_internal()
+{
+	uint64_t frame_count = 0;
+
+	RTMPPacket packet = { 0 };
+	while (_running)
+	{
+		// Function 1: FLV file
+		/*
+		int ret = RTMP_Read(_rtmp_ptr, (char *)_buffer_ptr, _buffer_size);
+		if (ret < 0)
+			break;
+		if (ret == 0) // Timeout for recv
+			continue;
+
+		fwrite(_buffer_ptr, sizeof(uint8_t), ret, _file_ptr);
+
+		frame_count++;
+		if (frame_count % 100 == 0) {
+			printf("read frames=%lld\n", frame_count);
+		}
+		*/
+
+		//
+		// Function 2: Parse rtmp stream to h264 and aac
+		//
+		// url:https://blog.csdn.net/byxdaz/article/details/53993791
+		// The FLV header is preplaced with rtmp chunk header, so ignore FLV header before frames!!!
+		//
+		// Tag + Tag data
+		// Tag = Type(1 byte) + length(3 bytes) + timestamp(3/4 bytes) + streamID(3 bytes)
+		//
+		// Video data = frame type(4 bits) + codecid(4 bits) + AVCPacketType(1 bytes) + CompositionTime(3 bytes)
+		//	+ AVCDecoderConfigurationRecord/NALUs
+		//
+		// Audio data = format(4 bits) + samplerate(2 bits) + depth(1 bit) + type(1 bit) + ACCPacketType(1 byte)
+		//	+ AudioObjectType (5 bits) + AudioSpecificConfig/Speex(Fixed)
+		//
+		uint8_t nalu_header[4] = { 0x00, 0x00, 0x00, 0x01 };
+
+		int ret = RTMP_ReadPacket(_rtmp_ptr, &packet);
+		if (ret < 0)
+			break;
+		if (0 == ret)
+			continue;
+		if (RTMPPacket_IsReady(&packet)) {
+			// Process packet, eg: set chunk size, set bw, ...
+			RTMP_ClientPacket(_rtmp_ptr, &packet);
+
+			if (packet.m_packetType == RTMP_PACKET_TYPE_VIDEO) {
+				bool keyframe = 0x17 == packet.m_body[0] ? true : false;
+				bool sequence = 0x00 == packet.m_body[1];
+
+				printf("keyframe=%s, sequence=%s\n", keyframe ? "true" : "false", sequence ? "true" : "false");
+
+				// SPS/PPS sequence
+				if (sequence) {
+					uint32_t offset = 10;
+					uint32_t sps_num = packet.m_body[offset++] & 0x1f;
+					for (int i = 0; i < sps_num; i++) {
+						uint8_t ch0 = packet.m_body[offset];
+						uint8_t ch1 = packet.m_body[offset + 1];
+						uint32_t sps_len = ((ch0 << 8) | ch1);
+						offset += 2;
+						// Write sps data
+						fwrite(nalu_header, sizeof(uint8_t), 4, _file_ptr);
+						fwrite(packet.m_body + offset, sizeof(uint8_t), sps_len, _file_ptr);
+						offset += sps_len;
+					}
+					uint32_t pps_num = packet.m_body[offset++] & 0x1f;
+					for (int i = 0; i < pps_num; i++) {
+						uint8_t ch0 = packet.m_body[offset];
+						uint8_t ch1 = packet.m_body[offset + 1];
+						uint32_t pps_len = ((ch0 << 8) | ch1);
+						offset += 2;
+						// Write pps data
+						fwrite(nalu_header, sizeof(uint8_t), 4, _file_ptr);
+						fwrite(packet.m_body + offset, sizeof(uint8_t), pps_len, _file_ptr);
+						offset += pps_len;
+					}
+				}
+				// Nalu frames
+				else {
+					uint32_t offset = 5;
+					uint8_t ch0 = packet.m_body[offset];
+					uint8_t ch1 = packet.m_body[offset + 1];
+					uint8_t ch2 = packet.m_body[offset + 2];
+					uint8_t ch3 = packet.m_body[offset + 3];
+					uint32_t data_len = ((ch0 << 24) | (ch1 << 16) | (ch2 << 8) | ch3);
+					offset += 4;
+					// Write nalu data
+					fwrite(nalu_header, sizeof(uint8_t), 4, _file_ptr);
+					fwrite(packet.m_body + offset, sizeof(uint8_t),data_len, _file_ptr);
+					offset += data_len;
+				}
+			}
+			else if (packet.m_packetType == RTMP_PACKET_TYPE_AUDIO) {
+				/*
+				bool sequence = 0x00 == packet.m_body[1];
+
+				printf("sequence=%s\n", sequence ? "true" : "false");
+
+				uint8_t format = 0, samplerate = 0, sampledepth = 0, type = 0;
+				uint8_t object_type = 0, sample_frequency_index = 0, channels = 0,
+					frame_length_flag = 0, depend_on_core_coder = 0, extension_flag = 0;
+				// AAC sequence
+				if (sequence) {
+					format = (packet.m_body[0] & 0xf0) >> 4;
+					samplerate = (packet.m_body[0] & 0x0c) >> 2;
+					sampledepth = (packet.m_body[0] & 0x02) >> 1;
+					type = packet.m_body[0] & 0x01;
+					// sequence = packet.m_body[1];
+					// AAC(AudioSpecificConfig)
+					if (format == 10) {
+						uint8_t ch0 = packet.m_body[2];
+						uint8_t ch1 = packet.m_body[3];
+						uint16_t config = ((ch0 << 8) | ch1);
+						object_type = (config & 0xF800) >> 11;
+						sample_frequency_index = (config & 0x0780) >> 7;
+						channels = (config & 0x78) >> 3;
+						frame_length_flag = (config & 0x04) >> 2;
+						depend_on_core_coder = (config & 0x02) >> 1;
+						extension_flag = config & 0x01;
+					}
+					// Speex(Fix data here, so no need to parse...)
+					else if (format == 11) {
+						// 16 KHz, mono, 16bit/sample
+						type = 0;
+						sampledepth = 1;
+						samplerate = 4;
+					}
+				}
+				// Audio frames
+				else {
+					// ADTS(7 bytes) + AAC data
+					uint32_t data_len = packet.m_nBodySize - 2 + 7;
+					uint8_t adts[7];
+					adts[0] = 0xff;
+					adts[1] = 0xf9;
+					adts[2] = ((object_type - 1) << 6) | (sample_frequency_index << 2) | (channels >> 2);
+					adts[3] = ((channels & 3) << 6) + (data_len >> 11);
+					adts[4] = (data_len & 0x7FF) >> 3;
+					adts[5] = ((data_len & 7) << 5) + 0x1F;
+					adts[6] = 0xfc;
+					// Write audio frames
+					fwrite(adts, sizeof(uint8_t), 7, _file_ptr);
+					fwrite(packet.m_body + 2, sizeof(uint8_t), packet.m_nBodySize - 2, _file_ptr);
+				}
+				*/
+			}
+			else if (packet.m_packetType == RTMP_PACKET_TYPE_INFO){
+				// TODO:
+				// ...
+			}
+			else {
+				// TODO:
+				// ...
+			}
+		}
+	}
+}
+
+
+bool CTestPuller::_init_sockets()
+{
+	WORD version;
+	WSADATA wsaData;
+	version = MAKEWORD(1, 1);
+
+	return (WSAStartup(version, &wsaData) == 0);
+}
+
+void CTestPuller::_cleanup_sockets()
+{
+	WSACleanup();
+}
+
 
 
 
