@@ -84,6 +84,7 @@ buffer time_ms		--------------->
                     <---------------		Control
 					<---------------		(onStatus)NetStream.Play.Start
 					
+					<---------------		|RtmpSampleAccess
 					<---------------		onMetaData
 					<---------------		video data
 					<---------------		audio data
