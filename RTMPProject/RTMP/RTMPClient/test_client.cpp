@@ -239,3 +239,195 @@ bool CTestPusher::_parse_streams(rtmp_metadata_t &metadata, stream_type_t type)
 }
 
 
+// CTestPuller
+CTestPuller::CTestPuller()
+{
+	_rtmp_ptr = NULL;
+	_running = false;
+	_thread_ptr = NULL;
+
+	_buffer_size = 0;
+	_buffer_ptr = NULL;
+	_file_ptr = NULL;
+}
+
+CTestPuller::~CTestPuller()
+{
+}
+
+bool CTestPuller::create(const char *path_ptr)
+{
+	bool success = false;
+
+	do {
+		if (NULL == path_ptr)
+			break;
+
+		_rtmp_ptr = new CRTMPClient;
+		if (NULL == _rtmp_ptr)
+			break;
+
+		_buffer_size = 2 * 1024 * 1024; // 2MB
+		_buffer_ptr = new uint8_t[_buffer_size];
+		if (NULL == _buffer_ptr)
+			break;
+		_file_ptr = fopen(path_ptr, "wb+");
+		if (NULL == _file_ptr)
+			break;
+
+		success = true;
+	} while (false);
+
+	if (!success) {
+		destroy();
+	}
+
+	return success;
+}
+
+void CTestPuller::destroy()
+{
+	if (NULL != _rtmp_ptr) {
+		delete _rtmp_ptr;
+		_rtmp_ptr = NULL;
+	}
+	if (NULL != _buffer_ptr) {
+		delete[] _buffer_ptr;
+		_buffer_ptr = NULL;
+	}
+	_buffer_size = 0;
+	if (NULL != _file_ptr) {
+		fclose(_file_ptr);
+		_file_ptr = NULL;
+	}
+}
+
+bool CTestPuller::connect(const char *url_ptr, uint32_t timeout_secs)
+{
+	bool success = false;
+
+	do {
+		if (NULL == _rtmp_ptr)
+			break;
+		if (!rt_is_success(_rtmp_ptr->create(url_ptr)))
+			break;
+		if (!rt_is_success(_rtmp_ptr->connect(timeout_secs)))
+			break;
+
+		_running = true;
+		_thread_ptr = new std::thread(thread_proc, this);
+		if (NULL == _thread_ptr)
+			break;
+
+		success = true;
+	} while (false);
+
+	if (!success) {
+		disconnect();
+	}
+
+	return success;
+}
+
+void CTestPuller::disconnect()
+{
+	_running = false;
+	if (NULL != _thread_ptr) {
+		_thread_ptr->join();
+		delete _thread_ptr;
+		_thread_ptr = NULL;
+	}
+	if (NULL != _rtmp_ptr) {
+		_rtmp_ptr->disconnect();
+		_rtmp_ptr->destroy();
+	}
+}
+
+void CTestPuller::thread_proc_internal()
+{
+	rtmp_packet_t packet;
+	rtmp_init_packet(&packet);
+	packet.data_ptr = new uint8_t[RTMP_MAX_CHUNK_SIZE];
+	if (NULL == packet.data_ptr)
+		return;
+	packet.size = RTMP_MAX_CHUNK_SIZE;
+	packet.valid = 0;
+
+	while (_running)
+	{
+		uint8_t nalu_header[4] = { 0x00, 0x00, 0x00, 0x01 };
+
+		rt_status_t status = _rtmp_ptr->recv_packet(&packet);
+		if (!rt_is_success(status))
+			break;
+
+		// Process packet, eg: set chunk size, set bw, ...
+		_rtmp_ptr->handle_packet(&packet);
+
+		if (packet.msg_type == RTMP_MSG_TYPE_VIDEO) {
+			bool keyframe = 0x17 == packet.data_ptr[0] ? true : false;
+			bool sequence = 0x00 == packet.data_ptr[1];
+
+			printf("keyframe=%s, sequence=%s\n", keyframe ? "true" : "false", sequence ? "true" : "false");
+
+			// SPS/PPS sequence
+			if (sequence) {
+				uint32_t offset = 10;
+				uint32_t sps_num = packet.data_ptr[offset++] & 0x1f;
+				for (int i = 0; i < sps_num; i++) {
+					uint8_t ch0 = packet.data_ptr[offset];
+					uint8_t ch1 = packet.data_ptr[offset + 1];
+					uint32_t sps_len = ((ch0 << 8) | ch1);
+					offset += 2;
+					// Write sps data
+					fwrite(nalu_header, sizeof(uint8_t), 4, _file_ptr);
+					fwrite(packet.data_ptr + offset, sizeof(uint8_t), sps_len, _file_ptr);
+					offset += sps_len;
+				}
+				uint32_t pps_num = packet.data_ptr[offset++] & 0x1f;
+				for (int i = 0; i < pps_num; i++) {
+					uint8_t ch0 = packet.data_ptr[offset];
+					uint8_t ch1 = packet.data_ptr[offset + 1];
+					uint32_t pps_len = ((ch0 << 8) | ch1);
+					offset += 2;
+					// Write pps data
+					fwrite(nalu_header, sizeof(uint8_t), 4, _file_ptr);
+					fwrite(packet.data_ptr + offset, sizeof(uint8_t), pps_len, _file_ptr);
+					offset += pps_len;
+				}
+			}
+			// Nalu frames
+			else {
+				uint32_t offset = 5;
+				uint8_t ch0 = packet.data_ptr[offset];
+				uint8_t ch1 = packet.data_ptr[offset + 1];
+				uint8_t ch2 = packet.data_ptr[offset + 2];
+				uint8_t ch3 = packet.data_ptr[offset + 3];
+				uint32_t data_len = ((ch0 << 24) | (ch1 << 16) | (ch2 << 8) | ch3);
+				offset += 4;
+				// Write nalu data
+				fwrite(nalu_header, sizeof(uint8_t), 4, _file_ptr);
+				fwrite(packet.data_ptr + offset, sizeof(uint8_t), data_len, _file_ptr);
+				offset += data_len;
+			}
+		}
+		else if (packet.msg_type == RTMP_MSG_TYPE_AUDIO) {
+			// TODO:
+			// ...
+		}
+		else if (packet.msg_type == RTMP_MSG_TYPE_INFO){
+			// TODO:
+			// ...
+		}
+		else {
+			// TODO:
+			// ...
+		}
+	}
+
+	delete[] packet.data_ptr;
+}
+
+
+
+

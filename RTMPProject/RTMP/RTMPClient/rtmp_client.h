@@ -28,6 +28,8 @@ public:
 	rt_status_t send_medadata(const rtmp_metadata_t &meta);
 	rt_status_t send_video(uint32_t size, const uint8_t *data_ptr, uint64_t pts, bool keyframe);
 	rt_status_t send_audio(uint32_t size, const uint8_t *data_ptr, uint64_t pts);
+	rt_status_t recv_packet(rtmp_packet_t *pkt_ptr); // For puller
+	rt_status_t handle_packet(rtmp_packet_t *pkt_ptr); // For puller
 
 protected:
 	rt_status_t _init_network();

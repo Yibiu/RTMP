@@ -454,6 +454,24 @@ rt_status_t CRTMPClient::send_audio(uint32_t size, const uint8_t *data_ptr, uint
 	return status;
 }
 
+rt_status_t CRTMPClient::recv_packet(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	status = _recv_packet(pkt_ptr);
+
+	return status;
+}
+
+rt_status_t CRTMPClient::handle_packet(rtmp_packet_t *pkt_ptr)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	status = _handle_packet(pkt_ptr);
+
+	return status;
+}
+
 
 rt_status_t CRTMPClient::_init_network()
 {

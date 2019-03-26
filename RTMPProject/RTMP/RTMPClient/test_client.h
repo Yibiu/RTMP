@@ -61,3 +61,38 @@ protected:
 	std::thread *_thread_ptr;
 };
 
+
+/**
+* @brief:
+* Test for rtmp puller
+*/
+class CTestPuller
+{
+public:
+	CTestPuller();
+	virtual ~CTestPuller();
+
+	bool create(const char *path_ptr);
+	void destroy();
+	bool connect(const char *url_ptr, uint32_t timeout_secs);
+	void disconnect();
+
+	static void thread_proc(void *param)
+	{
+		CTestPuller *this_ptr = (CTestPuller *)param;
+		if (NULL != this_ptr)
+			this_ptr->thread_proc_internal();
+	}
+	void thread_proc_internal();
+
+protected:
+	CRTMPClient *_rtmp_ptr;
+	bool _running;
+	std::thread *_thread_ptr;
+
+	uint32_t _buffer_size;
+	uint8_t *_buffer_ptr;
+	FILE *_file_ptr;
+};
+
+

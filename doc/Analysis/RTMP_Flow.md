@@ -42,7 +42,7 @@ connect				--------------->
 					<---------------		set server BW
 					<---------------		set client BW
 					<---------------		set chunk size
-					<---------------		_result for NetConnection.Connect.Success
+					<---------------		_result for connect
 			
 releaseStream		--------------->
 FCPublish			--------------->
@@ -63,7 +63,33 @@ audio data			--------------->
 
 ## 三：拉流
 
-略
+```c++
+CLIENT										SERVER
+
+connect				--------------->	  
+					<---------------		set server BW
+					<---------------		set client BW
+					<---------------		set chunk size
+					<---------------		_result for connect
+			
+serverBW			--------------->
+buffer time_ms		--------------->
+createStream		--------------->
+FCSubscribe			--------------->
+                    <---------------		Control
+					<---------------		_result for createStream
+
+play				--------------->
+buffer time_ms		--------------->
+                    <---------------		Control
+					<---------------		(onStatus)NetStream.Play.Start
+					
+					<---------------		onMetaData
+					<---------------		video data
+					<---------------		audio data
+```
+
+
 
 
 
