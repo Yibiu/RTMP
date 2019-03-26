@@ -102,7 +102,7 @@ CRTMPClient::~CRTMPClient()
 {
 }
 
-rt_status_t CRTMPClient::create(const char *url)
+rt_status_t CRTMPClient::create(const char *url, rtmp_mode_t mode)
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
 
@@ -136,6 +136,8 @@ rt_status_t CRTMPClient::create(const char *url)
 		}
 		_recv_pkt_ptr->size = RTMP_MAX_CHUNK_SIZE;
 		_recv_pkt_ptr->valid = 0;
+
+		_context.mode = mode;
 	} while (false);
 
 	if (!rt_is_success(status)) {
@@ -1052,7 +1054,7 @@ rt_status_t CRTMPClient::_handle_control(rtmp_packet_t *pkt_ptr)
 			break;
 		case 0x06: // Server Ping. reply with pong.
 			tmp = amf_decode_u32(pkt_ptr->data_ptr + 2);
-			//RTMP_SendCtrl(r, 0x07, tmp, 0);
+			_invoke_ctrl(0x07, tmp, 0);
 			break;
 			/* FMS 3.5 servers send the following two controls to let the client
 			* know when the server has sent a complete buffer. I.e., when the

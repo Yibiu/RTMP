@@ -63,7 +63,7 @@ bool CTestPusher::connect(const char *url_ptr, uint32_t timeout_secs)
 		if (NULL == _rtmp_ptr)
 			break;
 
-		if (!rt_is_success(_rtmp_ptr->create(url_ptr)))
+		if (!rt_is_success(_rtmp_ptr->create(url_ptr, RTMP_MODE_PUSHER)))
 			break;
 		if (!rt_is_success(_rtmp_ptr->connect(timeout_secs)))
 			break;
@@ -309,7 +309,7 @@ bool CTestPuller::connect(const char *url_ptr, uint32_t timeout_secs)
 	do {
 		if (NULL == _rtmp_ptr)
 			break;
-		if (!rt_is_success(_rtmp_ptr->create(url_ptr)))
+		if (!rt_is_success(_rtmp_ptr->create(url_ptr, RTMP_MODE_PULLER)))
 			break;
 		if (!rt_is_success(_rtmp_ptr->connect(timeout_secs)))
 			break;

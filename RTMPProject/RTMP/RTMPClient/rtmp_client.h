@@ -21,7 +21,7 @@ public:
 	CRTMPClient();
 	virtual ~CRTMPClient();
 
-	rt_status_t create(const char *url);
+	rt_status_t create(const char *url, rtmp_mode_t mode);
 	void destroy();
 	rt_status_t connect(uint32_t timeout_secs);
 	void disconnect();
