@@ -149,6 +149,7 @@ typedef struct _rtmp_context
 	rtmp_link_t link;
 	rtmp_param_t params;
 	rtmp_mode_t mode;
+	uint32_t buffer_ms; // Only for puller
 
 	int socket;
 	bool playing;

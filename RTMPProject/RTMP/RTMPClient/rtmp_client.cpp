@@ -42,6 +42,7 @@ AVDEF(createStream);
 AVDEF(live);
 AVDEF(FCUnpublish);
 AVDEF(deleteStream);
+AVDEF(FCSubscribe);
 
 // Method
 AVDEF(_result);
@@ -76,6 +77,7 @@ CRTMPClient::CRTMPClient()
 	_context.params.auth = "";
 
 	_context.mode = RTMP_MODE_PUSHER;
+	_context.buffer_ms = 3600 * 1000;
 
 	_context.socket = -1;
 	_context.playing = false;
@@ -840,6 +842,148 @@ rt_status_t CRTMPClient::_invoke_delete_stream()
 	return _send_packet(&packet, false);
 }
 
+rt_status_t CRTMPClient::_invoke_server_bw()
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_PROTOCOL_CONTROL;
+	packet.msg_type = RTMP_MSG_TYPE_SERVER_BW;
+	packet.msg_stream_id = _context.stream_id; // 0 or current stream id?
+	packet.timestamp = 0;
+
+	uint8_t buffer[4096];
+	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
+	uint8_t *ptr = packet.data_ptr;
+	amf_encode_u32(ptr, _context.server_bw);
+	ptr += 4;
+	packet.size = 4096;
+	packet.valid = ptr - packet.data_ptr;
+
+	return _send_packet(&packet, false);
+}
+
+/*
+from http://jira.red5.org/confluence/display/docs/Ping:
+
+Ping is the most mysterious message in RTMP and till now we haven't fully interpreted it yet. In summary, Ping message is used as a special command that are exchanged between client and server. This page aims to document all known Ping messages. Expect the list to grow.
+
+The type of Ping packet is 0x4 and contains two mandatory parameters and two optional parameters. The first parameter is the type of Ping and in short integer. The second parameter is the target of the ping. As Ping is always sent in Channel 2 (control channel) and the target object in RTMP header is always 0 which means the Connection object, it's necessary to put an extra parameter to indicate the exact target object the Ping is sent to. The second parameter takes this responsibility. The value has the same meaning as the target object field in RTMP header. (The second value could also be used as other purposes, like RTT Ping/Pong. It is used as the timestamp.) The third and fourth parameters are optional and could be looked upon as the parameter of the Ping packet. Below is an unexhausted list of Ping messages.
+
+* type 0: Clear the stream. No third and fourth parameters. The second parameter could be 0. After the connection is established, a Ping 0,0 will be sent from server to client. The message will also be sent to client on the start of Play and in response of a Seek or Pause/Resume request. This Ping tells client to re-calibrate the clock with the timestamp of the next packet server sends.
+* type 1: Tell the stream to clear the playing buffer.
+* type 3: Buffer time of the client. The third parameter is the buffer time in millisecond.
+* type 4: Reset a stream. Used together with type 0 in the case of VOD. Often sent before type 0.
+* type 6: Ping the client from server. The second parameter is the current time.
+* type 7: Pong reply from client. The second parameter is the time the server sent with his ping request.
+* type 26: SWFVerification request
+* type 27: SWFVerification response
+*/
+rt_status_t CRTMPClient::_invoke_ctrl(uint16_t type, uint32_t object, uint32_t time_ms)
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_PROTOCOL_CONTROL;
+	packet.msg_type = RTMP_MSG_TYPE_CONTROL;
+	packet.msg_stream_id = _context.stream_id; // 0 or current stream id?
+	packet.timestamp = 0;
+
+	uint32_t size = 0;
+	switch (type)
+	{
+	case 0x03: // buffer time
+		size = 10;
+		break;
+	case 0x1A: // SWF verify request
+		size = 3;
+		break;
+	case 0x1B: // SWF verify response
+		size = 44;
+		break;
+	default:
+		size = 6;
+		break;
+	}
+
+	uint8_t buffer[4096];
+	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
+	uint8_t *ptr = packet.data_ptr;
+	ptr = amf_encode_u16(ptr, type);
+	if (type == 0x1B) {
+		// 42 bytes
+		// ...
+	}
+	else if (type == 0x1A) {
+		*ptr++ = object & 0xff;
+	}
+	else {
+		if (size > 2) {
+			ptr = amf_encode_u32(ptr, object);
+		}
+		if (size > 6) {
+			ptr = amf_encode_u32(ptr, time_ms);
+		}
+	}
+	packet.size = 4096;
+	packet.valid = size;
+
+	return _send_packet(&packet, false);
+}
+
+rt_status_t CRTMPClient::_invoke_fcsubscribe()
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_OVER_CONNECTION;
+	packet.msg_type = RTMP_MSG_TYPE_INVOKE;
+	packet.msg_stream_id = _context.stream_id; // 0 or current stream id?
+	packet.timestamp = 0;
+
+	uint8_t buffer[4096];
+	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
+	uint8_t *ptr = packet.data_ptr;
+	ptr = amf_encode_string(ptr, av_FCSubscribe);
+	ptr = amf_encode_number(ptr, ++_context.invoke_ids);
+	*ptr++ = AMF_NULL;
+	val_t stream = { _context.link.stream.length(), _context.link.stream };
+	ptr = amf_encode_string(ptr, stream);
+	packet.size = 4096;
+	packet.valid = ptr - packet.data_ptr;
+
+	return _send_packet(&packet, true);
+}
+
+rt_status_t CRTMPClient::_invoke_play()
+{
+	rt_status_t status = RT_STATUS_SUCCESS;
+
+	rtmp_packet_t packet;
+	packet.chk_type = RTMP_CHUNK_TYPE_LARGE;
+	packet.chk_stream_id = RTMP_CHUNK_STREAM_OVER_STREAM2;
+	packet.msg_type = RTMP_MSG_TYPE_INVOKE;
+	packet.msg_stream_id = _context.stream_id; // Current stream id
+	packet.timestamp = 0;
+
+	uint8_t buffer[4096];
+	packet.data_ptr = buffer + RTMP_MAX_HEADER_SIZE; // Reserved to fill header
+	uint8_t *ptr = packet.data_ptr;
+	ptr = amf_encode_string(ptr, av_play);
+	ptr = amf_encode_number(ptr, ++_context.invoke_ids);
+	*ptr++ = AMF_NULL;
+	val_t stream = { _context.link.stream.length(), _context.link.stream };
+	ptr = amf_encode_string(ptr, stream);
+	ptr = amf_encode_number(ptr, -1000.0);
+	packet.size = 4096;
+	packet.valid = ptr - packet.data_ptr;
+
+	return _send_packet(&packet, true);
+}
+
 rt_status_t CRTMPClient::_handle_chunk_size(rtmp_packet_t *pkt_ptr)
 {
 	rt_status_t status = RT_STATUS_SUCCESS;
@@ -1172,21 +1316,14 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 					_invoke_fcpublish();
 				}
 				else {
-					//RTMP_SendServerBW(r);
-					//RTMP_SendCtrl(r, 3, 0, 300);
+					_invoke_server_bw();
+					_invoke_ctrl(3, 0, 300);
 				}
 
 				_invoke_create_stream();
 
 				if (_context.mode != RTMP_MODE_PUSHER) {
-					// Authenticate on Justin.tv legacy servers before sending FCSubscribe
-					//if (r->Link.usherToken.av_len)
-					//	SendUsherToken(r, &r->Link.usherToken);
-					// Send the FCSubscribe if live stream or if subscribepath is set
-					//if (r->Link.subscribepath.av_len)
-					//	SendFCSubscribe(r, &r->Link.subscribepath);
-					//else if (r->Link.lFlags & RTMP_LF_LIVE)
-					//	SendFCSubscribe(r, &r->Link.playpath);
+					_invoke_fcsubscribe();
 				}
 			}
 			// Method - _result - "createStream"
@@ -1209,8 +1346,8 @@ rt_status_t CRTMPClient::_handle_invoke(rtmp_packet_t *pkt_ptr)
 					_invoke_publish();
 				}
 				else {
-					//SendPlay(r);
-					//RTMP_SendCtrl(r, 3, r->m_stream_id, r->m_nBufferMS);
+					_invoke_play();
+					_invoke_ctrl(3, _context.stream_id, _context.buffer_ms);
 				}
 			}
 			else if (AVMATCH(&method_invoked, &av_play) || AVMATCH(&method_invoked, &av_publish)) {

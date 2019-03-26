@@ -41,6 +41,10 @@ protected:
 	rt_status_t _invoke_publish();
 	rt_status_t _invoke_fcunpublish();
 	rt_status_t _invoke_delete_stream();
+	rt_status_t _invoke_server_bw(); // Only for puller
+	rt_status_t _invoke_ctrl(uint16_t type, uint32_t object, uint32_t time_ms); // Only for puller
+	rt_status_t _invoke_fcsubscribe(); // Only for puller
+	rt_status_t _invoke_play(); // Only for puller
 
 	rt_status_t _handle_chunk_size(rtmp_packet_t *pkt_ptr);
 	rt_status_t _handle_bytes_read_report(rtmp_packet_t *pkt_ptr);
