@@ -111,7 +111,7 @@ protected:
 * @brief:
 * Test class for rtmp puller
 * 
-* Frames from server --> puller --> local file
+* Frames from server --> puller --> local file(.flv or .h264 or .aac)
 */
 class CTestPuller
 {
