@@ -2,6 +2,24 @@
 
 
 
+
+
+## 结构
+
+```c++
+RTMPProject
+    |---- LibRTMP(librtmp开源库)
+    |---- RTMP(针对LibRTMP的推流和拉流测试程序)
+    |---- RTMPClient(自实现的RTMP推流和拉流功能和测试程序)
+    |---- SRSClient(srs-rtmp推流测试程序)
+```
+
+
+
+
+
+
+
 references:
 
 [srs](https://github.com/ossrs/srs)
